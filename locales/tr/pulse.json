@@ -1,0 +1,17 @@
+{
+  "title": "Tesis durumu",
+  "subtitle": "Kuyruk tahmini ve akış içgörüleri.",
+  "queueForecast": "Kuyruk Tahmini",
+  "nextHours": "Önümüzdeki 8 saat",
+  "valuesHint": "Değerler tahmini bekleme dakikalarıdır (düşük daha iyi).",
+  "stationPerformance": "İstasyon Performansı",
+  "efficiencyScore": "Verimlilik skoru",
+  "flowHealthIndex": "Akış sağlık endeksi",
+  "todayTimeline": "Bugünün Zaman Çizelgesi",
+  "peakWindowTitle": "Yoğun pencere",
+  "peakWindowBody": "11:30 - 14:00 arası kuyruk 20 dk üstü bekleniyor.",
+  "recoveryTitle": "Toparlanma",
+  "recoveryBody": "15:30 sonrası kapı uygunluğu artar, kuyruk düşer.",
+  "eveningFlowTitle": "Akşam akışı",
+  "eveningFlowBody": "Kapanışa kadar 12-14 dk stabil tahmin."
+}

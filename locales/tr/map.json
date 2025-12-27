@@ -1,0 +1,21 @@
+{
+  "title": "Tesis haritası",
+  "subtitle": "Bir konuma dokun, kuyruk uzunluğu, tahmini varış zamanını ve aksiyonları gör.",
+  "open": "Açık",
+  "limited": "Sınırlı",
+  "closed": "Kapalı",
+  "reset": "Sıfırla",
+  "refresh": "Yenile",
+  "trucks": "{{count}} araç",
+  "bookSlot": "Slot ayarla",
+  "directions": "Yol tarifi",
+  "mobileOnlyBadge": "Sadece mobil",
+  "mobileOnlyHint": "Canlı konumlar ve kuyruk iOS ve Android'de.",
+  "mobileOnlyTitle": "Bu ekran Android ve iOS'ta etkileşimlidir.",
+  "mobileOnlyBody": "Tesis pinlerini, güncel kuyruk uzunluklarını ve yönlendirmeleri görmek için uygulamayı mobilden açın.",
+  "step1": "Expo'yu çalıştırıp projeyi Expo Go'da açın.",
+  "step2": "Terminalde görünen QR kodu tarayın.",
+  "step3": "Buraya geri dönün - harita mobilde canlı olacaktır.",
+  "tip": "İpucu: Harita etkileşimleri yalnızca mobilde; düzen önizlemesi için bu ekranı açık tutun.",
+  "gotIt": "Tamam"
+}

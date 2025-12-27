@@ -1,0 +1,14 @@
+{
+  "title": "Ayarlar",
+  "subtitle": "Oturum ve uygulama tercihlerini yönet.",
+  "account": "Hesap",
+  "role": "Rol",
+  "version": "Sürüm",
+  "session": "Oturum",
+  "sessionHint": "Çıkış yapmak sizi giriş ekranına döndürür.",
+  "signOutFailed": "Çıkış başarısız",
+  "language": "Dil",
+  "languageHint": "Uygulama dilini İngilizce ve Türkçe arasında değiştir.",
+  "languageEnglish": "İngilizce",
+  "languageTurkish": "Türkçe"
+}

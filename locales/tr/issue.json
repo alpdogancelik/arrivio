@@ -1,0 +1,21 @@
+{
+  "title": "Sorun bildir",
+  "subtitle": "Check-in'i engelleyen durumu anlatın, hızlı aksiyon alalım.",
+  "priority": "Öncelikli yönlendirme",
+  "category": "Sorun türü",
+  "description": "Açıklama",
+  "descriptionPlaceholder": "Ne oldu? (kapı, zaman, istasyon, vb.)",
+  "attach": "Fotoğraf ekle (opsiyonel)",
+  "attachUnavailable": "Fotoğraf seçici bu demoda yok.",
+  "submit": "Raporu gönder",
+  "submitting": "Gönderiliyor...",
+  "required": "Lütfen kısa bir açıklama ekleyin.",
+  "submitted": "Gönderildi. Yakında güncellenecek.",
+  "failed": "Rapor gönderilemedi",
+  "delayed": "Geç check-in / gecikmeli giriş",
+  "equipment": "Ekipman sorunu",
+  "safety": "Güvenlik",
+  "other": "Diğer",
+  "nextTitle": "Sonrasında ne olacak?",
+  "nextBody": "Raporunuz tesis ekibine iletildi. 30 dakika içinde yanıt verilecektir. Durum sekmesinde canlı güncellemeler bekleyin."
+}

@@ -1,0 +1,21 @@
+{
+  "title": "Report an issue",
+  "subtitle": "Tell us what's blocking your check-in so we can route it fast.",
+  "priority": "Priority Routing",
+  "category": "Issue type",
+  "description": "Description",
+  "descriptionPlaceholder": "Describe what happened. (gate, time, station, ref #)",
+  "attach": "Attach photo (optional)",
+  "attachUnavailable": "Photo picker is not implemented in this demo.",
+  "submit": "Send report",
+  "submitting": "Sending...",
+  "required": "Description is required.",
+  "submitted": "Submitted. We'll update you soon.",
+  "failed": "Couldn't send report",
+  "delayed": "Late check-in / delayed entry",
+  "equipment": "Equipment problem",
+  "safety": "Safety",
+  "other": "Other",
+  "nextTitle": "What happens next?",
+  "nextBody": "Your report is routed to facility ops. Expect a response within 30 minutes and live updates in the Status tab."
+}

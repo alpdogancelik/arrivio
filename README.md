@@ -1,144 +1,168 @@
-<h1 align="center">Arrivio Carrier App (Expo)</h1>
+# Arrivio Carrier App
 
-Arrivio is an Expo Router based carrier app for bookings, map visibility, operational pulse, and issue reporting.
-It uses React Query for data fetching and i18n (EN/TR). By default it runs with mock data.
+Arrivio is an Expo Router based carrier application for booking management, facility visibility, queue monitoring, operational reporting, and issue tracking. The app is bilingual (`EN` / `TR`), starts in English for first-time users, and is currently configured to run against Firebase and Firestore by default.
 
-## Quick overview
-- Auth flow with Firebase (or mock), role check for "carrier"
-- Bookings: create, list, detail, cancel
-- Map: live facility pins on native, placeholder on web
-- Pulse: operational KPIs and forecasts
-- Issues: submit incident tickets
-- Profile + Settings: user info, language toggle, logout
+## What is included
+
+- Email/password authentication with Firebase
+- Register, sign in, forgot password, and email verification guidance
+- Language switching on auth screens and in settings
+- Booking list, detail, creation, and cancellation flows
+- Queue, station, pulse, issue, and report data access through `src/api/*`
+- Native map screen with a web fallback screen
+- Firebase Functions and Firestore rules configuration in this repository
+
+## Current app behavior
+
+- Default language for new users is English
+- Language preference is stored locally after the first change
+- Registration shows a message asking the user to check email verification, including spam folder guidance
+- Sign-in shows an English error when email or password is invalid
+- `USE_MOCK_DATA` is currently set to `false` in [src/config/mock.ts](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/src/config/mock.ts)
 
 ## Tech stack
-- Expo + React Native + Expo Router
-- React Query (@tanstack/react-query)
+
+- Expo 54
+- React Native 0.81
+- Expo Router
+- React Query
+- Firebase Auth
+- Firestore
+- Firebase Functions
 - i18next + react-i18next
-- Firebase Auth (optional, disabled by default)
-- Zod for runtime validation
-- AsyncStorage + SecureStore for tokens
-- react-native-maps (native) + web shim
+- Zod
 
-## Run in VS Code
-### Requirements
-- Node.js 18+ and npm
-- Expo CLI (use `npx expo`)
-- Android Studio for Android emulator, Xcode for iOS (macOS)
-- VS Code extension: `expo.vscode-expo-tools` (recommended)
+## Requirements
 
-### Install
-1) Open the folder that contains `package.json` (this repo root) in VS Code.
-2) Install dependencies:
-   `npm install`
-3) Create env file:
-   - PowerShell: `Copy-Item .env.example .env`
-   - macOS/Linux: `cp .env.example .env`
+- Node.js 18 or newer
+- npm
+- Expo Go or a simulator/emulator
+- Firebase project configured for:
+  - Authentication
+  - Firestore
+  - Functions
 
-### Start
-- `npx expo start` (or `npm run start`)
-- In the Expo terminal:
-  - press `a` for Android emulator
-  - press `i` for iOS simulator (macOS)
-  - press `w` for web
-- Or use scripts:
-  - `npm run android`
-  - `npm run ios`
-  - `npm run web`
+## Setup
 
-### Notes on mock vs real services
-- Default: `src/config/mock.ts` sets `USE_MOCK_DATA = true`. This lets the app run without a backend.
-- To use real APIs:
-  - set `USE_MOCK_DATA = false`
-  - set `API_BASE_URL` in `.env`
-  - ensure your backend matches the expected endpoints in `src/api/*`
-- Auth uses Firebase in `src/api/auth.ts` when mocks are disabled.
-  - `src/services/firebase.ts` is currently commented out. Uncomment and configure it when enabling Firebase.
-  - fill Firebase keys in `.env` (see `.env.example`).
+1. Install dependencies:
+
+```bash
+npm install
+```
+
+2. Create `.env` from the example file:
+
+```bash
+cp .env.example .env
+```
+
+PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+3. Fill the Firebase values in `.env`.
+
+4. Start the app:
+
+```bash
+npm run start
+```
+
+If you want a fixed port:
+
+```bash
+npm run start -- --port 8082
+```
 
 ## Environment variables
-See `.env.example`:
-- `API_BASE_URL`: backend base URL (no trailing slash)
-- `MAPS_API_KEY`: Google Maps key for geocoding and maps
-- `SENTRY_DSN`, `ANALYTICS_KEY`: optional
-- `FIREBASE_*`: Firebase config
-- `APP_ENV`: storage key suffix (dev|staging|prod)
+
+The template lives in [.env.example](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/.env.example).
+
+Important values:
+
+- `API_BASE_URL`
+- `MAPS_API_KEY`
+- `FIREBASE_API_KEY`
+- `FIREBASE_AUTH_DOMAIN`
+- `FIREBASE_PROJECT_ID`
+- `FIREBASE_STORAGE_BUCKET`
+- `FIREBASE_MESSAGING_SENDER_ID`
+- `FIREBASE_APP_ID`
+- `FIREBASE_MEASUREMENT_ID`
+- `EXPO_PUBLIC_FIREBASE_*`
+- `EXPO_PUBLIC_GET_RECOMMENDATION_URL`
+- `APP_ENV`
+
+## Firebase notes
+
+- Firebase app initialization lives in [src/services/firebase.ts](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/src/services/firebase.ts)
+- Expo config wiring lives in [app.config.ts](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/app.config.ts)
+- Firestore rules are in [firestore.rules](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/firestore.rules)
+- Firebase deployment config is in [firebase.json](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/firebase.json)
+- Cloud Functions source is in [functions/src/index.ts](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/functions/src/index.ts)
+
+Before testing auth on web, make sure:
+
+- Email/Password auth is enabled in Firebase Authentication
+- `localhost` is added to Firebase authorized domains
+- Firestore rules are deployed if you rely on live data
+
+## Useful scripts
+
+- `npm run start`
+- `npm run android`
+- `npm run ios`
+- `npm run web`
+- `npm run lint`
+- `npx tsc --noEmit`
 
 ## Project structure
-### Root config
-- `package.json`: scripts and dependencies
-- `app.config.ts`: dynamic Expo config + env extras
-- `app.json`: static Expo config snapshot
-- `metro.config.js`: web extensions + react-native-maps shim
-- `tsconfig.json`: strict TS + `@/*` path alias
-- `eslint.config.js`: Expo lint config
-- `.env.example`: env template
-- `expo-env.d.ts`: Expo types
-- `scripts/reset-project.js`: reset template script
-- `expo-start.log`, `expo-start.err.log`: local run logs
-- `.vscode/`: workspace settings + recommended extension
 
-### Routing (Expo Router) - `app/`
-- `app/_layout.tsx`: App shell, ThemeProvider, QueryClient, AuthGate, fonts, i18n hydration
-- `app/index.tsx`: redirect to home
-- `app/modal.tsx`: modal screen sample
-- `app/(auth)/login.tsx`: login UI with `useAuth.login`
-- `app/(auth)/register.tsx`: registration UI with `useAuth.register`
-- `app/(tabs)/_layout.tsx`: bottom tab navigation with haptics
-- `app/(tabs)/home/index.tsx`: dashboard, booking summary, quick links
-- `app/(tabs)/bookings/index.tsx`: list + stats + empty/error states
-- `app/(tabs)/bookings/new.tsx`: create booking with slots/stations
-- `app/(tabs)/bookings/[id].tsx`: booking detail + cancel
-- `app/(tabs)/map/index.native.tsx`: native map with pins
-- `app/(tabs)/map/index.tsx`: shared map (same as native)
-- `app/(tabs)/map/index.web.tsx`: web placeholder
-- `app/(tabs)/pulse/index.tsx`: ops pulse (forecast + station performance)
-- `app/(tabs)/issues/index.tsx`: issue creation
-- `app/(tabs)/profile/index.tsx`: profile view/edit (local update)
-- `app/(tabs)/settings/index.tsx`: language toggle + logout
+### App routes
 
-### Components
-- `components/auth-context.tsx`: auth state, token refresh, role check, API client setup
-- `components/gradient-button.tsx`: gradient button (uses `expo-linear-gradient` if installed)
-- `components/haptic-tab.tsx`: haptic feedback on tab press
-- `components/parallax-scroll-view.tsx`: parallax header helper
-- `components/themed-text.tsx`: typography + tone system
-- `components/themed-view.tsx`: themed container variants
-- `components/ui/icon-symbol.tsx`: SF Symbols -> Material mapping
-- `components/ui/icon-symbol.ios.tsx`: native SF Symbols on iOS
-- `components/ui/collapsible.tsx`: collapsible section
+- [app/_layout.tsx](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/app/_layout.tsx): app shell, providers, auth redirects
+- [app/(auth)/login.tsx](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/app/(auth)/login.tsx): sign-in screen
+- [app/(auth)/register.tsx](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/app/(auth)/register.tsx): register screen
+- [app/(auth)/forgot-password.tsx](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/app/(auth)/forgot-password.tsx): password reset screen
+- [app/(tabs)/home/index.tsx](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/app/(tabs)/home/index.tsx): dashboard
+- [app/(tabs)/bookings/index.tsx](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/app/(tabs)/bookings/index.tsx): bookings list
+- [app/(tabs)/bookings/new.tsx](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/app/(tabs)/bookings/new.tsx): create booking
+- [app/(tabs)/bookings/[id].tsx](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/app/(tabs)/bookings/[id].tsx): booking detail
+- [app/(tabs)/map/index.tsx](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/app/(tabs)/map/index.tsx): shared map screen
+- [app/(tabs)/map/index.native.tsx](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/app/(tabs)/map/index.native.tsx): native map implementation
+- [app/(tabs)/map/index.web.tsx](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/app/(tabs)/map/index.web.tsx): web fallback
+- [app/(tabs)/issues/index.tsx](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/app/(tabs)/issues/index.tsx): issues
+- [app/(tabs)/pulse/index.tsx](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/app/(tabs)/pulse/index.tsx): pulse analytics
+- [app/(tabs)/profile/index.tsx](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/app/(tabs)/profile/index.tsx): profile
+- [app/(tabs)/settings/index.tsx](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/app/(tabs)/settings/index.tsx): language and session settings
 
-### Constants and hooks
-- `constants/theme.ts`: light/dark palette, font fallbacks
-- `constants/images.ts`: image registry for assets (includes PDFs)
-- `hooks/use-color-scheme.ts`: native color scheme
-- `hooks/use-color-scheme.web.ts`: web hydration-safe scheme
-- `hooks/use-theme-color.ts`: theme color resolver
+### Shared code
 
-### Data layer (`src/`)
-- `src/api/client.ts`: request wrapper, token refresh, retries
-- `src/api/auth.ts`: Firebase auth (or mock)
-- `src/api/bookings.ts`: booking endpoints (or mock)
-- `src/api/issues.ts`: issue endpoints (or mock)
-- `src/api/errors.ts`: error mapping + Firebase error messages
-- `src/config/index.ts`: appConfig from Expo `extra` with zod validation
-- `src/config/mock.ts`: mock toggle
-- `src/i18n/index.ts`: i18n setup (EN/TR)
-- `src/mock/data.ts`: realistic mock facilities, bookings, issues, users
-- `src/query/keys.ts`: React Query cache keys
-- `src/services/geocoding.ts`: Google Geocoding helper
-- `src/services/firebase.ts`: Firebase init (commented out by default)
-- `src/storage/token-store.ts`: token persistence (SecureStore/AsyncStorage)
-- `src/storage/language-store.ts`: language persistence
-- `src/types/api.ts`: zod schemas and TypeScript types
-- `src/shims/react-native-maps.tsx`: web shim for react-native-maps
+- [components/auth-context.tsx](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/components/auth-context.tsx): auth state and session helpers
+- [src/api](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/src/api): API layer
+- [src/i18n/index.ts](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/src/i18n/index.ts): i18n bootstrap
+- [src/storage](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/src/storage): local persistence
+- [src/query/keys.ts](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/src/query/keys.ts): React Query cache keys
+- [src/utils/recommendation.ts](/c:/Users/alpdo/Downloads/transportation-management-system-main/transportation-management-system-main/src/utils/recommendation.ts): recommendation utilities
 
-### Assets and locales
-- `assets/ChairoSansRegular-Regular.ttf`: primary font
-- `assets/images/`: UI images, app icons, PDFs
-- `locales/en/*.json`, `locales/tr/*.json`: translations
+## Development notes
 
-## Development tips
-- If maps are needed on web, use the native apps instead; web map is a placeholder.
-- When you switch env values, restart Metro with cache clear: `npx expo start -c`.
-- For linting: `npm run lint` (tests are not configured).
+- If Metro behaves strangely, restart with cache clear:
+
+```bash
+npx expo start -c
+```
+
+- Web uses the Expo Router web build and does not render the native map implementation.
+- Log files such as `expo-start*.log` are local-only and ignored by Git.
+
+## Quality checks
+
+Use these before committing:
+
+```bash
+npm run lint
+npx tsc --noEmit
+```

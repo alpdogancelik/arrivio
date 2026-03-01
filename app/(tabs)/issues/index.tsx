@@ -1,8 +1,8 @@
-﻿import { ThemedText } from '@/components/themed-text';
+import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { createIssue } from '@/api/issues';
+import { createIssue, fetchIssues } from '@/api/issues';
 import { mapApiError } from '@/api/errors';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -17,14 +17,44 @@ import {
 import { useTranslation } from 'react-i18next';
 import { Image } from 'expo-image';
 import { images } from '@/constants/images';
+import { queryKeys } from '@/query/keys';
 
 type IssueCategory = 'delayed' | 'equipment' | 'safety' | 'other';
+
+const formatIssueDate = (value?: string) => {
+  if (!value) return '-';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '-';
+  return parsed.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
 
 export default function IssueScreen() {
   const { t } = useTranslation(['issue', 'common']);
 
   const [desc, setDesc] = useState('');
   const [category, setCategory] = useState<IssueCategory>('delayed');
+
+  const { data: issuesRaw, isLoading: issuesLoading, refetch: refetchIssues } = useQuery({
+    queryKey: queryKeys.issues(),
+    queryFn: () => fetchIssues(),
+    staleTime: 30_000,
+  });
+
+  const issues = useMemo(() => (Array.isArray(issuesRaw) ? issuesRaw : []), [issuesRaw]);
+  const recentIssues = useMemo(() => {
+    return [...issues]
+      .sort((a: any, b: any) => {
+        const ta = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const tb = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return tb - ta;
+      })
+      .slice(0, 5);
+  }, [issues]);
 
   const categories = useMemo(
     () => [
@@ -33,7 +63,6 @@ export default function IssueScreen() {
       { id: 'safety' as const, label: t('issue:safety') },
       { id: 'other' as const, label: t('issue:other') },
     ],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [t],
   );
 
@@ -41,6 +70,7 @@ export default function IssueScreen() {
     mutationFn: createIssue,
     onSuccess: () => {
       setDesc('');
+      refetchIssues();
       Alert.alert(t('issue:title'), t('issue:submitted'));
     },
     onError: (error) => {
@@ -165,6 +195,47 @@ export default function IssueScreen() {
             <ThemedText style={styles.infoBody}>{t('issue:nextBody')}</ThemedText>
           </View>
         </ThemedView>
+
+        {/* RECENT ISSUES */}
+        <ThemedView style={styles.listCard}>
+          <Image source={images.alarm} style={styles.listImage} contentFit="contain" />
+          <View style={styles.listHeader}>
+            <ThemedText style={styles.infoTitle}>
+              {t('issue:recentTitle', { defaultValue: 'Recent issues' })}
+            </ThemedText>
+            <Pressable onPress={() => refetchIssues()} style={styles.listRefresh}>
+              <ThemedText style={styles.listRefreshText}>{t('common:retry')}</ThemedText>
+            </Pressable>
+          </View>
+
+          {issuesLoading ? (
+            <View style={styles.listEmpty}>
+              <ActivityIndicator />
+              <ThemedText style={styles.listEmptyText}>{t('common:loading')}</ThemedText>
+            </View>
+          ) : recentIssues.length ? (
+            <View style={styles.listRows}>
+              {recentIssues.map((issue: any) => (
+                <View key={issue.id} style={styles.listRow}>
+                  <View style={styles.listRowLeft}>
+                    <ThemedText style={styles.listRowTitle}>{issue.category ?? '-'}</ThemedText>
+                    <ThemedText style={styles.listRowBody} numberOfLines={2}>
+                      {issue.description ?? '-'}
+                    </ThemedText>
+                  </View>
+                  <View style={styles.listRowRight}>
+                    <ThemedText style={styles.listRowStatus}>{String(issue.status ?? '').toUpperCase()}</ThemedText>
+                    <ThemedText style={styles.listRowDate}>{formatIssueDate(issue.createdAt)}</ThemedText>
+                  </View>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <View style={styles.listEmpty}>
+              <ThemedText style={styles.listEmptyText}>{t('issue:noIssues', { defaultValue: 'No issues yet.' })}</ThemedText>
+            </View>
+          )}
+        </ThemedView>
       </ScrollView>
     </SafeAreaView>
   );
@@ -285,4 +356,38 @@ const styles = StyleSheet.create({
   infoBody: { color: '#9aa0a6', fontSize: 13, lineHeight: 18 },
 
   pressed: { opacity: 0.9 },
+
+  listCard: {
+    marginTop: 16,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#1a1a1a',
+    backgroundColor: '#0f0f0f',
+    overflow: 'hidden',
+  },
+  listImage: { position: 'absolute', right: -10, top: -10, width: 90, height: 90, opacity: 0.18 },
+  listHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  listRefresh: { paddingHorizontal: 8, paddingVertical: 4 },
+  listRefreshText: { color: '#2b8cff', fontWeight: '800' },
+
+  listRows: { gap: 12 },
+  listRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    borderWidth: 1,
+    borderColor: '#1a1a1a',
+    borderRadius: 12,
+    padding: 12,
+    backgroundColor: '#0c0c0c',
+  },
+  listRowLeft: { flex: 1, paddingRight: 10 },
+  listRowRight: { alignItems: 'flex-end' },
+  listRowTitle: { color: '#fff', fontWeight: '800', marginBottom: 6 },
+  listRowBody: { color: '#9aa0a6', fontSize: 12, lineHeight: 16 },
+  listRowStatus: { color: '#2b8cff', fontWeight: '800', fontSize: 11 },
+  listRowDate: { color: '#6b6b6b', fontSize: 11, marginTop: 6 },
+
+  listEmpty: { alignItems: 'center', paddingVertical: 12 },
+  listEmptyText: { color: '#9aa0a6', marginTop: 6, textAlign: 'center' },
 });

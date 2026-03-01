@@ -1,13 +1,18 @@
-﻿import React, { memo, useMemo } from "react";
+import React, { memo, useMemo } from "react";
 import { Platform, SafeAreaView, ScrollView, StyleSheet, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useQuery } from "@tanstack/react-query";
 
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { images } from "@/constants/images";
+import { fetchLatestReport } from "@/api/reports";
+import { fetchQueueEntries } from "@/api/queue-entries";
+import { fetchStations } from "@/api/stations";
+import { queryKeys } from "@/query/keys";
 
 type ForecastPoint = { label: string; valueMin: number };
 type StationPerf = { name: string; score: number; trendPct: number; hint?: string };
@@ -162,36 +167,132 @@ export default function PredictedScreen() {
   const { t } = useTranslation(["pulse", "common"]);
   const insets = useSafeAreaInsets();
 
-  // Mock "last updated" (KKTC ops style)
-  const updatedMinutesAgo = 2;
+  const { data: reportRaw } = useQuery({
+    queryKey: queryKeys.reports(),
+    queryFn: fetchLatestReport,
+    staleTime: 60_000,
+  });
+
+  const { data: stationsRaw } = useQuery({
+    queryKey: queryKeys.stations(),
+    queryFn: () => fetchStations(),
+    staleTime: 60_000,
+  });
+
+  const { data: queueRaw } = useQuery({
+    queryKey: queryKeys.queueEntries(),
+    queryFn: () => fetchQueueEntries(),
+    staleTime: 30_000,
+  });
+
+  const report = useMemo(() => (reportRaw as any) ?? null, [reportRaw]);
+  const stations = useMemo(() => (Array.isArray(stationsRaw) ? stationsRaw : []), [stationsRaw]);
+  const queueEntries = useMemo(() => (Array.isArray(queueRaw) ? queueRaw : []), [queueRaw]);
+
+  const queueCountByStation = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const entry of queueEntries) {
+      if (!entry.stationId) continue;
+      counts.set(entry.stationId, (counts.get(entry.stationId) ?? 0) + 1);
+    }
+    return counts;
+  }, [queueEntries]);
+
+  const updatedMinutesAgo = useMemo(() => {
+    if (!report?.createdAt) return 2;
+    const created = new Date(report.createdAt);
+    if (Number.isNaN(created.getTime())) return 2;
+    return Math.max(1, Math.round((Date.now() - created.getTime()) / 60000));
+  }, [report?.createdAt]);
   const updatedLabel =
     updatedMinutesAgo <= 1
       ? t("common:updatedJustNow", { defaultValue: "Updated just now" })
       : t("common:updatedMinutesAgo", { count: updatedMinutesAgo, defaultValue: `Updated ${updatedMinutesAgo} min ago` });
 
-  // KKTC queue forecast (minutes of expected wait)
+  const avgWait = Math.max(6, Math.round(report?.averageWaitingMinutes ?? 18));
+
+  // Queue forecast (minutes of expected wait)
   const forecast = useMemo<ForecastPoint[]>(
     () => [
-      { label: "08:00", valueMin: 9 },   // early calm
-      { label: "10:00", valueMin: 16 },  // trucks arrive
-      { label: "12:00", valueMin: 28 },  // customs + dock peak
-      { label: "14:00", valueMin: 24 },  // still heavy
-      { label: "16:00", valueMin: 14 },  // recovery
+      { label: "08:00", valueMin: Math.max(4, Math.round(avgWait * 0.6)) },
+      { label: "10:00", valueMin: Math.max(6, Math.round(avgWait * 0.9)) },
+      { label: "12:00", valueMin: Math.max(8, Math.round(avgWait * 1.4)) },
+      { label: "14:00", valueMin: Math.max(6, Math.round(avgWait * 1.2)) },
+      { label: "16:00", valueMin: Math.max(4, Math.round(avgWait * 0.8)) },
     ],
-    [],
+    [avgWait],
   );
 
+  const reportSubtitle = report?.createdAt
+    ? new Date(report.createdAt).toLocaleDateString()
+    : t("pulse:reportFallback", { defaultValue: "Latest snapshot" });
+
+  const reportMetrics = [
+    {
+      label: t("pulse:avgWaitLabel", { defaultValue: "Avg wait" }),
+      value:
+        typeof report?.averageWaitingMinutes === "number"
+          ? t("common:mins", { count: report.averageWaitingMinutes, defaultValue: `${report.averageWaitingMinutes} min` })
+          : "-",
+    },
+    {
+      label: t("pulse:avgServiceLabel", { defaultValue: "Avg service" }),
+      value:
+        typeof report?.averageServiceMinutes === "number"
+          ? t("common:mins", { count: report.averageServiceMinutes, defaultValue: `${report.averageServiceMinutes} min` })
+          : "-",
+    },
+    {
+      label: t("pulse:dailyTruckLabel", { defaultValue: "Daily trucks" }),
+      value:
+        typeof report?.dailyTruckCount === "number"
+          ? String(Math.round(report.dailyTruckCount))
+          : "-",
+    },
+  ];
+
+  const recentQueue = useMemo(() => {
+    return [...queueEntries]
+      .sort((a: any, b: any) => {
+        const ta = a?.entryTime ? new Date(a.entryTime).getTime() : 0;
+        const tb = b?.entryTime ? new Date(b.entryTime).getTime() : 0;
+        return tb - ta;
+      })
+      .slice(0, 5);
+  }, [queueEntries]);
+
+  const formatQueueTime = (value?: string) => {
+    if (!value) return "-";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return "-";
+    return parsed.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  };
+
   // KKTC station performance snapshot
-  const stations = useMemo<StationPerf[]>(
-    () => [
-      { name: "Gazimağusa Port (Customs Gate)", score: 78, trendPct: -3, hint: "Customs checks ↑" },
-      { name: "Lefkoşa Logistics Park (Gate B)", score: 90, trendPct: 5, hint: "Fast lane stable" },
-      { name: "Girne Free Zone (Dock 1)", score: 83, trendPct: 2, hint: "Dock throughput ↑" },
-      { name: "Güzelyurt Citrus Yard (Cold Dock)", score: 71, trendPct: -1, hint: "Cold-chain priority" },
-      { name: "İskele Boğaz Transfer (Weighbridge)", score: 88, trendPct: 1, hint: "Scale flow steady" },
-    ],
-    [],
-  );
+  const stationsPerf = useMemo<StationPerf[]>(() => {
+    if (!stations.length) {
+      return [
+        { name: "Gazimagusa Port (Customs Gate)", score: 78, trendPct: -3, hint: "Customs checks" },
+        { name: "Lefkosa Logistics Park (Gate B)", score: 90, trendPct: 5, hint: "Fast lane stable" },
+        { name: "Girne Free Zone (Dock 1)", score: 83, trendPct: 2, hint: "Dock throughput" },
+        { name: "Guzelyurt Citrus Yard (Cold Dock)", score: 71, trendPct: -1, hint: "Cold-chain priority" },
+        { name: "Iskele Bogaz Transfer (Weighbridge)", score: 88, trendPct: 1, hint: "Scale flow steady" },
+      ];
+    }
+
+    return stations.map((station) => {
+      const queueCount = queueCountByStation.get(station.id) ?? 0;
+      const score = Math.max(60, 100 - queueCount * 6);
+      const trendPct = queueCount === 0 ? 2 : queueCount >= 8 ? -3 : 0;
+      const hint = station.type ?? station.status ?? undefined;
+      return {
+        name: station.name ?? station.id,
+        score,
+        trendPct,
+        hint,
+      };
+    });
+  }, [queueCountByStation, stations]);
 
   // KKTC day timeline (operational narrative)
   const timeline = useMemo<TimelineItem[]>(
@@ -252,6 +353,22 @@ export default function PredictedScreen() {
           <Image source={images.performanceGrowth} style={styles.heroArt} contentFit="contain" />
         </ThemedView>
 
+        <Card
+          title={t("pulse:dailyReportTitle", { defaultValue: "Daily report" })}
+          subtitle={reportSubtitle}
+          art={images.statistics}
+          artStyle={styles.artTopRight}
+        >
+          <View style={styles.reportRow}>
+            {reportMetrics.map((metric) => (
+              <View key={metric.label} style={styles.reportItem}>
+                <ThemedText style={styles.reportLabel}>{metric.label}</ThemedText>
+                <ThemedText style={styles.reportValue}>{metric.value}</ThemedText>
+              </View>
+            ))}
+          </View>
+        </Card>
+
         {/* Forecast */}
         <Card
           title={t("pulse:queueForecast", { defaultValue: "Queue forecast" })}
@@ -276,7 +393,7 @@ export default function PredictedScreen() {
           artStyle={styles.artBottomRight}
         >
           <View style={styles.list}>
-            {stations.map((s) => (
+            {stationsPerf.map((s) => (
               <StationRow
                 key={s.name}
                 item={s}
@@ -286,8 +403,42 @@ export default function PredictedScreen() {
           </View>
         </Card>
 
+        <Card
+          title={t("pulse:queueEntriesTitle", { defaultValue: "Queue entries" })}
+          subtitle={t("pulse:queueEntriesSubtitle", { defaultValue: "Latest carrier queue activity" })}
+          art={images.hourglass}
+          artStyle={styles.artTopRight}
+        >
+          {recentQueue.length ? (
+            <View style={styles.queueList}>
+              {recentQueue.map((entry: any) => (
+                <View key={entry.id} style={styles.queueRow}>
+                  <View style={styles.queueLeft}>
+                    <ThemedText style={styles.queueTitle}>{entry.stationId ?? "-"}</ThemedText>
+                    <ThemedText style={styles.queueMeta}>
+                      {t("pulse:carrierIdLabel", { defaultValue: "Carrier" })}: {entry.carrierId ?? "-"}
+                    </ThemedText>
+                  </View>
+                  <View style={styles.queueRight}>
+                    <ThemedText style={styles.queueValue}>
+                      {typeof entry.waitingMinutes === "number"
+                        ? t("common:mins", { count: entry.waitingMinutes, defaultValue: `${entry.waitingMinutes} min` })
+                        : "-"}
+                    </ThemedText>
+                    <ThemedText style={styles.queueTime}>{formatQueueTime(entry.entryTime)}</ThemedText>
+                  </View>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <ThemedText style={styles.queueEmpty}>
+              {t("pulse:noQueueEntries", { defaultValue: "No queue entries yet." })}
+            </ThemedText>
+          )}
+        </Card>
+
         {/* Timeline */}
-        <Card title={t("pulse:todayTimeline", { defaultValue: "Today’s timeline" })} art={images.clock} artStyle={styles.artTopRight}>
+        <Card title={t("pulse:todayTimeline", { defaultValue: "Today's timeline" })} art={images.clock} artStyle={styles.artTopRight}>
           <TimelineBlock items={timeline} />
         </Card>
       </ScrollView>
@@ -355,6 +506,18 @@ const styles = StyleSheet.create({
   artTopRight: { right: -10, top: -10 },
   artBottomRight: { right: -10, bottom: -10, opacity: 0.18 },
 
+  reportRow: { flexDirection: "row", gap: 12 },
+  reportItem: {
+    flex: 1,
+    padding: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: UI.border,
+    backgroundColor: "#0c0c0c",
+  },
+  reportLabel: { color: UI.muted, fontSize: 11, fontWeight: "700" },
+  reportValue: { color: UI.text, fontSize: 14, fontWeight: "900", marginTop: 4 },
+
   chartRow: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between" },
   chartItem: { flex: 1, alignItems: "center" },
 
@@ -390,6 +553,23 @@ const styles = StyleSheet.create({
   stationScore: { fontWeight: "900", fontSize: 18 },
   trendRow: { flexDirection: "row", alignItems: "center", marginTop: 4 },
   stationTrend: { fontSize: 11, marginLeft: 6, fontWeight: "700" },
+
+  queueList: { gap: 10 },
+  queueRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: UI.border,
+  },
+  queueLeft: { flex: 1, paddingRight: 12 },
+  queueTitle: { color: UI.text, fontWeight: "800" },
+  queueMeta: { color: UI.muted, fontSize: 12, marginTop: 4 },
+  queueRight: { alignItems: "flex-end" },
+  queueValue: { color: UI.text, fontWeight: "900" },
+  queueTime: { color: UI.muted, fontSize: 11, marginTop: 4 },
+  queueEmpty: { color: UI.muted, fontSize: 12 },
 
   timelineStep: { flexDirection: "row", alignItems: "flex-start" },
   timelineDot: { width: 10, height: 10, borderRadius: 999, backgroundColor: UI.primary, marginTop: 6 },

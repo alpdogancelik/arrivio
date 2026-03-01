@@ -1,9 +1,8 @@
-// images.ts (veya constants/images.ts)
-// Boşluklu dosya isimlerine DOKUNMADIM — require path’leri birebir aynı.
+// constants/images.ts
+// Keep filenames with spaces exactly as-is in require paths.
 
 export const images = {
   // Settings / UI
-
   accountSettings: require('../assets/images/Account settings.png'),
   inbox: require('../assets/images/Inbox.png'),
   chat: require('../assets/images/Chat.png'),
@@ -50,22 +49,7 @@ export const images = {
   thumbsUpRightHand: require('../assets/images/Thumbs Up Right Hand.png'),
   holdingTabletLeft: require('../assets/images/Holding a Tablet to the Left.png'),
 
-  // App icons (android)
-  androidIconBackground: require('../assets/images/android-icon-background.png'),
-  androidIconForeground: require('../assets/images/android-icon-foreground.png'),
-  androidIconMonochrome: require('../assets/images/android-icon-monochrome.png'),
-
-  // React logos / misc
-  reactLogo: require('../assets/images/react-logo.png'),
-
-
-
-  // App base icons
-  icon: require('../assets/images/icon.png'),
-  splashIcon: require('../assets/images/splash-icon.png'),
-  favicon: require('../assets/images/favicon.png'),
-
-  // PDFs (asset olarak kalsın diye burada)
+  // PDFs (kept as assets)
   licensePdf: require('../assets/images/License.pdf'),
   license2Pdf: require('../assets/images/License2.pdf'),
 

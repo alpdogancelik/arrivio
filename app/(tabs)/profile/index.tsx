@@ -1,4 +1,4 @@
-﻿// app/(tabs)/profile/index.tsx
+// app/(tabs)/profile/index.tsx
 
 import { useAuth } from '@/components/auth-context';
 import { ThemedText } from '@/components/themed-text';

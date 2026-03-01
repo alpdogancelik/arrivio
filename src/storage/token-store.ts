@@ -7,16 +7,24 @@ import { AuthTokens, AuthTokensSchema } from '@/types/api';
 const STORAGE_KEY = `carrier.auth.tokens.${appConfig.appEnv}`;
 
 const readSecureStore = async () => {
-  const available = await SecureStore.isAvailableAsync();
-  if (!available) return null;
-  return SecureStore.getItemAsync(STORAGE_KEY);
+  try {
+    const available = await SecureStore.isAvailableAsync();
+    if (!available) return null;
+    return SecureStore.getItemAsync(STORAGE_KEY);
+  } catch {
+    return null;
+  }
 };
 
 const writeSecureStore = async (value: string) => {
-  const available = await SecureStore.isAvailableAsync();
-  if (!available) return false;
-  await SecureStore.setItemAsync(STORAGE_KEY, value);
-  return true;
+  try {
+    const available = await SecureStore.isAvailableAsync();
+    if (!available) return false;
+    await SecureStore.setItemAsync(STORAGE_KEY, value);
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 export const saveTokens = async (tokens: AuthTokens | null) => {
@@ -46,9 +54,13 @@ export const loadTokens = async (): Promise<AuthTokens | null> => {
 };
 
 export const clearTokens = async () => {
-  const available = await SecureStore.isAvailableAsync();
-  if (available) {
-    await SecureStore.deleteItemAsync(STORAGE_KEY);
+  try {
+    const available = await SecureStore.isAvailableAsync();
+    if (available) {
+      await SecureStore.deleteItemAsync(STORAGE_KEY);
+    }
+  } catch {
+    // Ignore secure store failures to avoid blocking logout.
   }
   await AsyncStorage.removeItem(STORAGE_KEY);
 };

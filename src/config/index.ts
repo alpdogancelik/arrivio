@@ -4,20 +4,21 @@ import { z } from 'zod';
 const stripTrailingSlash = (url: string) => (url.endsWith('/') ? url.slice(0, -1) : url);
 
 const FirebaseSchema = z.object({
-  apiKey: z.string().trim().min(1, 'FIREBASE_API_KEY is missing'),
+  apiKey: z.string().trim().optional().default(''),
   authDomain: z.string().optional().default(''),
-  projectId: z.string().trim().min(1, 'FIREBASE_PROJECT_ID is missing'),
+  projectId: z.string().trim().optional().default(''),
   storageBucket: z.string().optional().default(''),
   messagingSenderId: z.string().optional().default(''),
-  appId: z.string().trim().min(1, 'FIREBASE_APP_ID is missing'),
+  appId: z.string().trim().optional().default(''),
   measurementId: z.string().optional().default(''),
 });
 
 const ExtraSchema = z.object({
-  apiBaseUrl: z.string().trim().min(1, 'API_BASE_URL is missing'),
+  apiBaseUrl: z.string().trim().optional().default(''),
   mapsApiKey: z.string().optional().default(''),
   sentryDsn: z.string().optional().default(''),
   analyticsKey: z.string().optional().default(''),
+  getRecommendationUrl: z.string().trim().optional().default(''),
   authDisabled: z.boolean().optional().default(false),
   appEnv: z.string().optional().default('development'),
   firebase: FirebaseSchema.optional(),
@@ -36,6 +37,7 @@ export const appConfig = {
   mapsApiKey: parsed.success ? parsed.data.mapsApiKey : '',
   sentryDsn: parsed.success ? parsed.data.sentryDsn : '',
   analyticsKey: parsed.success ? parsed.data.analyticsKey : '',
+  getRecommendationUrl: parsed.success ? stripTrailingSlash(parsed.data.getRecommendationUrl) : '',
   authDisabled: parsed.success ? parsed.data.authDisabled : false,
   appEnv: parsed.success ? parsed.data.appEnv : 'development',
   version: Constants.expoConfig?.version ?? '0.0.0',
@@ -57,6 +59,9 @@ export type FirebaseConfig = NonNullable<AppConfig['firebase']>;
 export function assertFirebaseConfig(): FirebaseConfig {
   if (!appConfig.firebase) {
     throw new Error('Missing configuration value for firebase');
+  }
+  if (!appConfig.firebase.apiKey || !appConfig.firebase.projectId || !appConfig.firebase.appId) {
+    throw new Error('Firebase config is missing. Check app.config.ts extra.firebase.');
   }
   return appConfig.firebase;
 }

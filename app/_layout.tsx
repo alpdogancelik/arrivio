@@ -1,18 +1,17 @@
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
-import { Stack, useRouter, useSegments } from 'expo-router';
+import { Stack, usePathname, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Platform, StyleSheet, View } from 'react-native';
 import 'react-native-reanimated';
 import { useTranslation } from 'react-i18next';
 
 import { AuthProvider, useAuth } from '@/components/auth-context';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 import { appConfig } from '@/config';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import i18n from '@/i18n';
@@ -25,32 +24,80 @@ export const unstable_settings = {
 const AUTH_DISABLED = appConfig.authDisabled;
 const PRIMARY_FONT = 'ChairoSans';
 
+// On web, `expo-font` uses `fontfaceobserver` with a hard-coded 6000ms timeout.
+// When running through an Expo tunnel (exp.direct), assets/fonts may take longer to load,
+// which can cause repeated red-screen reload loops. We patch the observer to wait longer.
+const WEB_FONTFACEOBSERVER_TIMEOUT_MS = 6 * 60 * 1000; // 6 minutes
+
+const patchWebFontFaceObserverTimeout = () => {
+  if (Platform.OS !== 'web') return;
+
+  const globalAny = globalThis as unknown as { __arrivioPatchedFontTimeout?: boolean };
+  if (globalAny.__arrivioPatchedFontTimeout) return;
+  globalAny.__arrivioPatchedFontTimeout = true;
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const FontFaceObserver = require('fontfaceobserver');
+    if (!FontFaceObserver?.prototype?.load) return;
+
+    const originalLoad = FontFaceObserver.prototype.load;
+    FontFaceObserver.prototype.load = function patchedLoad(text: unknown, timeout?: unknown) {
+      const requested =
+        typeof timeout === 'number' && Number.isFinite(timeout) ? timeout : 0;
+      return originalLoad.call(
+        this,
+        text,
+        Math.max(requested, WEB_FONTFACEOBSERVER_TIMEOUT_MS),
+      );
+    };
+  } catch (err) {
+    // If patching fails, we keep the default behavior (still better than crashing the app here).
+    console.warn('Failed to patch fontfaceobserver timeout', err);
+  }
+};
+
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
+patchWebFontFaceObserverTimeout();
 
 function AuthGate() {
   const { status, error } = useAuth();
-  const segments = useSegments();
+  const pathname = usePathname();
   const router = useRouter();
   const { t } = useTranslation(['common']);
-  const inAuthFlow = segments[0] === '(auth)';
+  const inAuthFlow = pathname === '/login' || pathname === '/register' || pathname === '/forgot-password';
+  const splashReleasedRef = useRef(false);
 
   useEffect(() => {
+    if (splashReleasedRef.current) return;
+    if (AUTH_DISABLED || status !== 'checking') {
+      splashReleasedRef.current = true;
+      SplashScreen.hideAsync().catch(() => undefined);
+    }
+  }, [status]);
+
+  useEffect(() => {
+    const redirectTo = (targetPath: '/home' | '/login') => {
+      if (pathname === targetPath) return;
+      router.replace(targetPath);
+    };
+
     if (AUTH_DISABLED) {
       if (inAuthFlow) {
-        router.replace('/(tabs)/home');
+        redirectTo('/home');
       }
       return;
     }
 
     if (status === 'authenticated' && inAuthFlow) {
-      router.replace('/(tabs)/home');
+      redirectTo('/home');
       return;
     }
 
     if (status === 'unauthenticated' && !inAuthFlow) {
-      router.replace('/(auth)/login');
+      redirectTo('/login');
     }
-  }, [inAuthFlow, router, status]);
+  }, [inAuthFlow, pathname, router, status]);
 
   if (AUTH_DISABLED) {
     return (
@@ -61,13 +108,8 @@ function AuthGate() {
     );
   }
 
-  if (status === 'checking') {
-    return (
-      <ThemedView style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color="#2b8cff" />
-        <ThemedText style={{ marginTop: 10 }}>{t('common:loadingSession')}</ThemedText>
-      </ThemedView>
-    );
+  if (status === 'checking' && !splashReleasedRef.current) {
+    return null;
   }
 
   if (status === 'error') {
@@ -84,6 +126,7 @@ function AuthGate() {
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="(auth)/login" options={{ headerShown: false }} />
       <Stack.Screen name="(auth)/register" options={{ headerShown: false }} />
+      <Stack.Screen name="(auth)/forgot-password" options={{ headerShown: false }} />
       <Stack.Screen name="modal" options={{ presentation: 'modal', title: t('common:appName') }} />
     </Stack>
   );
@@ -91,8 +134,9 @@ function AuthGate() {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     ...Ionicons.font,
+    ...MaterialIcons.font,
     ...MaterialCommunityIcons.font,
     [PRIMARY_FONT]: require('../assets/ChairoSansRegular-Regular.ttf'),
   });
@@ -113,12 +157,6 @@ export default function RootLayout() {
   );
 
   useEffect(() => {
-    if (fontsLoaded) {
-      SplashScreen.hideAsync().catch(() => undefined);
-    }
-  }, [fontsLoaded]);
-
-  useEffect(() => {
     let active = true;
     loadLanguage().then((stored) => {
       if (!active || !stored) return;
@@ -130,8 +168,13 @@ export default function RootLayout() {
     };
   }, []);
 
-  if (!fontsLoaded) {
+  // Keep the splash screen until fonts are ready. If a font fails to load (timeout/offline),
+  // we still render the app to avoid an infinite boot loop on web/tunnel.
+  if (!fontsLoaded && !fontError) {
     return null;
+  }
+  if (fontError) {
+    console.warn('Font loading failed, continuing without all custom fonts', fontError);
   }
 
   return (

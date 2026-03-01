@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -8,10 +8,10 @@ import {
   StyleSheet,
   View,
 } from "react-native";
-import { Stack, useRouter, type Href } from "expo-router";
+import { Stack, useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
 import { useAuth } from "@/components/auth-context";
@@ -19,6 +19,10 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 
 import { createBooking } from "@/api/bookings";
+import { fetchFacilities } from "@/api/facilities";
+import { fetchQueueEntries } from "@/api/queue-entries";
+import { fetchStationRecommendation } from "@/api/recommendations";
+import { fetchStations } from "@/api/stations";
 import type { Booking } from "@/types/api";
 import { mapApiError } from "@/api/errors";
 import { queryKeys } from "@/query/keys";
@@ -32,50 +36,50 @@ type Station = {
   baseLoad: number;
 };
 
-const STATIONS: Station[] = [
-  // Gazimağusa Limanı
+const STATIC_STATIONS: Station[] = [
+  // Gazimagusa Limani
   {
     id: "st-mg-g2",
-    name: "Gümrük Kapısı 2 (Hızlı Evrak)",
+    name: "Gumruk Kapisi 2 (Hizli Evrak)",
     facilityId: "fac-mg-01",
-    facilityName: "Gazimağusa Limanı - Ana Giriş",
+    facilityName: "Gazimagusa Limani - Ana Giris",
     baseLoad: 34,
   },
   {
     id: "st-mg-g1",
-    name: "Gümrük Kapısı 1",
+    name: "Gumruk Kapisi 1",
     facilityId: "fac-mg-01",
-    facilityName: "Gazimağusa Limanı - Ana Giriş",
+    facilityName: "Gazimagusa Limani - Ana Giris",
     baseLoad: 38,
   },
   {
     id: "st-mg-i1",
-    name: "Gümrük İnceleme (Random Check)",
+    name: "Gumruk Inceleme (Random Check)",
     facilityId: "fac-mg-01",
-    facilityName: "Gazimağusa Limanı - Ana Giriş",
+    facilityName: "Gazimagusa Limani - Ana Giris",
     baseLoad: 44,
   },
 
-  // Lefkoşa
+  // Lefkosa
   {
     id: "st-lk-g2",
-    name: "Kapı B - Hızlı Geçiş",
+    name: "Kapi B - Hizli Gecis",
     facilityId: "fac-lk-01",
-    facilityName: "Lefkoşa Sanayi Lojistik Parkı",
+    facilityName: "Lefkosa Sanayi Lojistik Parki",
     baseLoad: 22,
   },
   {
     id: "st-lk-g1",
-    name: "Kapı A - Evrak Kontrol",
+    name: "Kapi A - Evrak Kontrol",
     facilityId: "fac-lk-01",
-    facilityName: "Lefkoşa Sanayi Lojistik Parkı",
+    facilityName: "Lefkosa Sanayi Lojistik Parki",
     baseLoad: 26,
   },
   {
     id: "st-lk-w1",
-    name: "Tartı 1",
+    name: "Tarti 1",
     facilityId: "fac-lk-01",
-    facilityName: "Lefkoşa Sanayi Lojistik Parkı",
+    facilityName: "Lefkosa Sanayi Lojistik Parki",
     baseLoad: 18,
   },
 
@@ -84,30 +88,30 @@ const STATIONS: Station[] = [
     id: "st-gn-d1",
     name: "Depo Rampa 1",
     facilityId: "fac-gn-01",
-    facilityName: "Girne Serbest Bölge Depo Kompleksi",
+    facilityName: "Girne Serbest B�lge Depo Kompleksi",
     baseLoad: 28,
   },
 
-  // Güzelyurt
+  // G�zelyurt
   {
     id: "st-gz-d1",
-    name: "Soğuk Hava Rampa",
+    name: "Soguk Hava Rampa",
     facilityId: "fac-gz-01",
-    facilityName: "Güzelyurt Narenciye Yükleme Sahası",
+    facilityName: "G�zelyurt Narenciye Y�kleme Sahasi",
     baseLoad: 30,
   },
 
-  // İskele
+  // Iskele
   {
     id: "st-is-w1",
-    name: "Tartı - Transfer",
+    name: "Tarti - Transfer",
     facilityId: "fac-is-01",
-    facilityName: "İskele Boğaz Transfer Noktası",
+    facilityName: "Iskele Bogaz Transfer Noktasi",
     baseLoad: 20,
   },
 ];
 
-// Typed Routes ile garanti uyumlu path’ler
+// Typed Routes ile garanti uyumlu path�ler
 const ROUTES = {
   list: "/(tabs)/bookings" as const,
   new: "/(tabs)/bookings/new" as const,
@@ -130,18 +134,17 @@ const makeDays = (count = 7) => {
   return out;
 };
 
-const makeSlots = (day: Date, startHour = 10, endHour = 18, stepMin = 30) => {
+const makeSlots = (day: Date, startHour = 10, endHour = 18) => {
   const out: Date[] = [];
-  for (let h = startHour; h <= endHour; h++) {
-    for (let m = 0; m < 60; m += stepMin) {
-      if (h === endHour && m > 0) continue;
-      const d = new Date(day);
-      d.setHours(h, m, 0, 0);
-      out.push(d);
-    }
+  // We generate *hourly* slots (e.g. "10-11") to match the recommendation model.
+  // Using a full Date object keeps the UI flexible, while the backend receives a stable "HH-HH" label.
+  for (let h = startHour; h < endHour; h++) {
+    const d = new Date(day);
+    d.setHours(h, 0, 0, 0);
+    out.push(d);
   }
 
-  // Bugünse geçmiş slotları ele
+  // Bug�nse ge�mis slotlari ele
   const now = new Date();
   if (day.toDateString() === now.toDateString()) {
     return out.filter((x) => x.getTime() >= now.getTime() + 5 * 60 * 1000);
@@ -158,13 +161,13 @@ const tinyHash = (s: string) => {
 const estimateWaitMin = (station: Station, slot: Date) => {
   const hour = slot.getHours();
 
-  // “operasyon gerçeği”: öğlen gümrük/liman sıkışır, 15:30 sonrası toparlar
+  // �operasyon ger�egi�: �glen g�mr�k/liman sikisir, 15:30 sonrasi toparlar
   const peak = hour >= 11 && hour <= 14 ? 10 : hour >= 15 && hour <= 17 ? 6 : 2;
 
-  // tesis bazlı ekstra baskı
+  // tesis bazli ekstra baski
   const facilityBias =
-    station.facilityId === "fac-mg-01" ? 4 : // Mağusa limanı daha volatil
-      station.facilityId === "fac-gz-01" ? 2 : // soğuk zincir rampası
+    station.facilityId === "fac-mg-01" ? 4 : // Magusa limani daha volatil
+      station.facilityId === "fac-gz-01" ? 2 : // soguk zincir rampasi
         0;
 
   const wobble = (tinyHash(`${station.id}-${slot.toISOString()}`) % 7) - 3; // -3..+3
@@ -173,11 +176,86 @@ const estimateWaitMin = (station: Station, slot: Date) => {
   return Math.max(3, raw);
 };
 
+const toSlotLabel = (slot: Date) => {
+  const start = slot.getHours();
+  const end = (start + 1) % 24;
+  return `${start}-${end}`;
+};
+
 export default function NewBookingScreen() {
   const router = useRouter();
   const qc = useQueryClient();
   const { t } = useTranslation(["booking", "common"]);
   const { user } = useAuth();
+
+  const params = useLocalSearchParams<{ facilityId?: string | string[] }>();
+  const facilityIdParam = Array.isArray(params.facilityId) ? params.facilityId[0] : params.facilityId;
+  const scopedFacilityId = facilityIdParam ? String(facilityIdParam) : undefined;
+
+  const { data: facilitiesRaw } = useQuery({
+    queryKey: queryKeys.facilities(),
+    queryFn: fetchFacilities,
+    staleTime: 60_000,
+  });
+
+  const { data: stationsRaw } = useQuery({
+    queryKey: queryKeys.stations(scopedFacilityId),
+    queryFn: () => fetchStations(scopedFacilityId),
+    staleTime: 60_000,
+  });
+
+  const { data: queueRaw } = useQuery({
+    queryKey: queryKeys.queueEntries(),
+    queryFn: () => fetchQueueEntries(),
+    staleTime: 30_000,
+  });
+
+  const facilities = useMemo(() => (Array.isArray(facilitiesRaw) ? facilitiesRaw : []), [facilitiesRaw]);
+  const stationsFromDb = useMemo(() => (Array.isArray(stationsRaw) ? stationsRaw : []), [stationsRaw]);
+  const queueEntries = useMemo(() => (Array.isArray(queueRaw) ? queueRaw : []), [queueRaw]);
+
+  const facilityById = useMemo(() => new Map(facilities.map((facility) => [facility.id, facility])), [facilities]);
+
+  const queueCountByStation = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const entry of queueEntries) {
+      if (!entry.stationId) continue;
+      counts.set(entry.stationId, (counts.get(entry.stationId) ?? 0) + 1);
+    }
+    return counts;
+  }, [queueEntries]);
+
+  const stationCatalog = useMemo(() => {
+    const fallback = scopedFacilityId
+      ? STATIC_STATIONS.filter((station) => station.facilityId === scopedFacilityId)
+      : STATIC_STATIONS;
+
+    if (!stationsFromDb.length) return fallback;
+
+    const defaultFacilityId = facilities.length === 1 ? facilities[0]?.id : undefined;
+
+    return stationsFromDb.map((station) => {
+      const resolvedFacilityId =
+        station.facilityId && station.facilityId !== "unknown"
+          ? station.facilityId
+          : scopedFacilityId ?? defaultFacilityId ?? "unknown";
+      const facilityName =
+        facilityById.get(resolvedFacilityId)?.name ??
+        facilityById.get(station.facilityId ?? "")?.name ??
+        station.facilityId ??
+        "Facility";
+      const queueCount = queueCountByStation.get(station.id) ?? 0;
+      const baseLoad = Math.max(12, 12 + queueCount * 6);
+
+      return {
+        id: station.id,
+        name: station.name ?? station.id,
+        facilityId: resolvedFacilityId,
+        facilityName,
+        baseLoad,
+      };
+    });
+  }, [facilities, facilityById, queueCountByStation, scopedFacilityId, stationsFromDb]);
 
   const days = useMemo(() => makeDays(7), []);
   const [dayIdx, setDayIdx] = useState(0);
@@ -187,16 +265,68 @@ export default function NewBookingScreen() {
 
   const [selectedSlot, setSelectedSlot] = useState<Date | null>(null);
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
+  const [userPickedStation, setUserPickedStation] = useState(false);
+
+  const resolvedFacilityIdForReco = useMemo(() => {
+    if (scopedFacilityId) return scopedFacilityId;
+    if (facilities.length === 1) return facilities[0]?.id;
+    return undefined;
+  }, [facilities, scopedFacilityId]);
+
+  const selectedArrivalIso = selectedSlot?.toISOString() ?? "";
+
+  const { data: recoData, isFetching: isRecoFetching } = useQuery({
+    queryKey: queryKeys.stationRecommendation(resolvedFacilityIdForReco, selectedArrivalIso),
+    queryFn: () =>
+      fetchStationRecommendation({
+        facilityId: resolvedFacilityIdForReco,
+        arrivalTime: selectedArrivalIso,
+        slot: selectedSlot ? toSlotLabel(selectedSlot) : undefined,
+      }),
+    enabled: Boolean(selectedSlot),
+    staleTime: 15_000,
+  });
 
   const stationOptions = useMemo(() => {
     if (!selectedSlot) return [];
-    return STATIONS.map((s) => ({
-      ...s,
-      wait: estimateWaitMin(s, selectedSlot),
-    })).sort((a, b) => a.wait - b.wait);
-  }, [selectedSlot]);
+    if (recoData?.stations?.length) {
+      const byId = new Map(stationCatalog.map((station) => [station.id, station] as const));
+      return recoData.stations
+        .map((rec) => {
+          const station = byId.get(rec.stationId);
+          const facilityId =
+            station?.facilityId ?? rec.facilityId ?? resolvedFacilityIdForReco ?? "unknown";
+          return {
+            id: rec.stationId,
+            name: station?.name ?? rec.stationName ?? rec.stationId,
+            facilityId,
+            facilityName: station?.facilityName ?? facilityById.get(facilityId)?.name ?? "Facility",
+            baseLoad: station?.baseLoad ?? 0,
+            wait: Math.max(0, Math.round(rec.predictedWaitMin)),
+            score: rec.score,
+            position: rec.predictedPosition,
+          };
+        })
+        .sort((a, b) => a.wait - b.wait);
+    }
 
-  const recommended = stationOptions[0] ?? null;
+    return stationCatalog
+      .map((s) => ({
+        ...s,
+        wait: estimateWaitMin(s, selectedSlot),
+      }))
+      .sort((a, b) => a.wait - b.wait);
+  }, [facilityById, recoData?.stations, resolvedFacilityIdForReco, selectedSlot, stationCatalog]);
+
+  const recommended = useMemo(() => {
+    if (!stationOptions.length) return null;
+    if (recoData?.suggestedStationId) {
+      return (
+        stationOptions.find((item) => item.id === recoData.suggestedStationId) ?? stationOptions[0]
+      );
+    }
+    return stationOptions[0];
+  }, [recoData?.suggestedStationId, stationOptions]);
 
   const createMut = useMutation({
     mutationFn: createBooking,
@@ -207,14 +337,26 @@ export default function NewBookingScreen() {
 
   const pickSlot = (d: Date) => {
     setSelectedSlot(d);
+    setUserPickedStation(false);
 
-    // slot seçilince otomatik en iyi station'ı default seç
-    const best = STATIONS
+    // slot se�ilince otomatik en iyi station'i default se�
+    const best = stationCatalog
       .map((s) => ({ id: s.id, w: estimateWaitMin(s, d) }))
       .sort((a, b) => a.w - b.w)[0];
 
     setSelectedStationId(best?.id ?? null);
   };
+
+  useEffect(() => {
+    if (!selectedSlot) return;
+    if (userPickedStation) return;
+
+    const suggested = recoData?.suggestedStationId ?? null;
+    if (!suggested) return;
+    if (suggested === selectedStationId) return;
+
+    setSelectedStationId(suggested);
+  }, [recoData?.suggestedStationId, selectedSlot, selectedStationId, userPickedStation]);
 
   const onConfirm = async () => {
     if (!user) {
@@ -241,14 +383,24 @@ export default function NewBookingScreen() {
       return;
     }
 
-    const station = STATIONS.find((s) => s.id === stationId);
-    const facilityId = station?.facilityId ?? "fac-lk-01";
+    const station = stationCatalog.find((s) => s.id === stationId);
+    const resolvedFacilityId =
+      station?.facilityId && station.facilityId !== "unknown"
+        ? station.facilityId
+        : scopedFacilityId ?? facilities[0]?.id ?? "unknown";
+    const facilityName = station?.facilityName ?? facilityById.get(resolvedFacilityId)?.name;
 
     try {
       const created: Booking = await createMut.mutateAsync({
-        facilityId,
+        facilityId: resolvedFacilityId,
         stationId,
+        facilityName,
+        stationName: station?.name ?? undefined,
         arrivalTime: selectedSlot.toISOString(),
+        slot: toSlotLabel(selectedSlot),
+        recommendedStationId: recoData?.suggestedStationId ?? undefined,
+        recommendedWaitMin: typeof stationOptions[0]?.wait === "number" ? stationOptions[0].wait : undefined,
+        recommendations: recoData?.stations ?? undefined,
         notes: undefined,
       });
 
@@ -284,7 +436,7 @@ export default function NewBookingScreen() {
             {t("booking:newBookingTitle", { defaultValue: "Yeni rezervasyon" })}
           </ThemedText>
           <ThemedText style={styles.headerSub}>
-            {t("booking:newBookingSubtitle", { defaultValue: "Varış penceresini planla" })}
+            {t("booking:newBookingSubtitle", { defaultValue: "Varis penceresini planla" })}
           </ThemedText>
         </View>
 
@@ -294,9 +446,9 @@ export default function NewBookingScreen() {
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <ThemedView style={styles.hero}>
           <Image source={images.clock} style={styles.heroArt} contentFit="contain" />
-          <ThemedText style={styles.heroTitle}>{t("booking:pickSlot", { defaultValue: "Saat seç" })}</ThemedText>
+          <ThemedText style={styles.heroTitle}>{t("booking:pickSlot", { defaultValue: "Saat se�" })}</ThemedText>
           <ThemedText style={styles.heroBody}>
-            {t("booking:pickSlotHint", { defaultValue: "Tahmini kuyruğa göre en iyi kapıyı/istasyonu öneriyoruz." })}
+            {t("booking:pickSlotHint", { defaultValue: "Tahmini kuyruga g�re en iyi kapiyi/istasyonu �neriyoruz." })}
           </ThemedText>
         </ThemedView>
 
@@ -350,21 +502,21 @@ export default function NewBookingScreen() {
 
           <ThemedText style={styles.hint}>
             {slots.length === 0
-              ? t("booking:noSlots", { defaultValue: "Bugün için slot yok." })
-              : t("booking:showingFirstSlots", { defaultValue: "İlk 10 slot gösteriliyor." })}
+              ? t("booking:noSlots", { defaultValue: "Bug�n i�in slot yok." })
+              : t("booking:showingFirstSlots", { defaultValue: "Ilk 10 slot g�steriliyor." })}
           </ThemedText>
         </View>
 
         <View style={styles.section}>
           <ThemedText style={styles.sectionLabel}>
-            {t("booking:recommendation", { defaultValue: "Öneri" })}
+            {t("booking:recommendation", { defaultValue: "�neri" })}
           </ThemedText>
 
           {!selectedSlot ? (
             <ThemedView style={styles.emptyReco}>
               <Image source={images.hourglass} style={styles.emptyRecoArt} contentFit="contain" />
               <ThemedText style={styles.emptyRecoText}>
-                {t("booking:chooseTimeHint", { defaultValue: "Öneri görmek için önce saat seç." })}
+                {t("booking:chooseTimeHint", { defaultValue: "�neri g�rmek i�in �nce saat se�." })}
               </ThemedText>
             </ThemedView>
           ) : (
@@ -372,14 +524,16 @@ export default function NewBookingScreen() {
               <ThemedView style={styles.recoCard}>
                 <Image source={images.statistics} style={styles.recoArt} contentFit="contain" />
                 <View style={styles.recoLeft}>
-                  <ThemedText style={styles.recoTitle}>{recommended?.name ?? "—"}</ThemedText>
+                  <ThemedText style={styles.recoTitle}>{recommended?.name ?? "�"}</ThemedText>
                   <ThemedText style={styles.recoMeta}>
-                    {recommended?.facilityName ?? "—"}
+                    {recommended?.facilityName ?? "�"}
                   </ThemedText>
                   <ThemedText style={styles.recoSub}>
-                    {recommended
-                      ? t("booking:estWait", { count: recommended.wait, defaultValue: `Tahmini bekleme: ${recommended.wait} dk` })
-                      : "-"}
+                    {isRecoFetching && selectedSlot && !recoData
+                      ? t("booking:calculating", { defaultValue: "Hesaplanıyor..." })
+                      : recommended
+                        ? t("booking:estWait", { count: recommended.wait, defaultValue: `Tahmini bekleme: ${recommended.wait} dk` })
+                        : "-"}
                   </ThemedText>
                 </View>
 
@@ -389,7 +543,7 @@ export default function NewBookingScreen() {
               </ThemedView>
 
               <ThemedText style={[styles.sectionLabel, { marginTop: 16 }]}>
-                {t("booking:stations", { defaultValue: "İstasyonlar" })}
+                {t("booking:stations", { defaultValue: "Istasyonlar" })}
               </ThemedText>
 
               {stationOptions.map((s) => {
@@ -397,13 +551,16 @@ export default function NewBookingScreen() {
                 return (
                   <Pressable
                     key={s.id}
-                    onPress={() => setSelectedStationId(s.id)}
+                    onPress={() => {
+                      setUserPickedStation(true);
+                      setSelectedStationId(s.id);
+                    }}
                     style={[styles.stationRow, picked && styles.stationRowPicked]}
                   >
                     <View style={styles.stationLeft}>
                       <ThemedText style={styles.stationName}>{s.name}</ThemedText>
                       <ThemedText style={styles.stationMeta}>
-                        {s.facilityName} • {t("booking:minEta", { count: s.wait, defaultValue: `${s.wait} dk tahmini varış zamanı` })}
+                        {s.facilityName} � {t("booking:minEta", { count: s.wait, defaultValue: `${s.wait} dk tahmini varis zamani` })}
                       </ThemedText>
                     </View>
 
@@ -434,7 +591,7 @@ export default function NewBookingScreen() {
             <View style={styles.loadingRow}>
               <ActivityIndicator color="#fff" />
               <ThemedText style={styles.confirmText}>
-                {t("booking:confirmBookingLoading", { defaultValue: "Oluşturuluyor..." })}
+                {t("booking:confirmBookingLoading", { defaultValue: "Olusturuluyor..." })}
               </ThemedText>
             </View>
           ) : (

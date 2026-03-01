@@ -4,7 +4,10 @@ import {
   BookingStatus,
   Issue,
   IssueStatus,
+  QueueEvent,
+  QueueEventType,
   RoleSchema,
+  StationStats,
   User,
 } from '@/types/api';
 
@@ -45,6 +48,9 @@ const isoNow = () => new Date().toISOString();
 
 const minutesFromNow = (minutes: number) =>
   new Date(Date.now() + minutes * 60 * 1000).toISOString();
+
+const minutesAgo = (minutes: number) =>
+  new Date(Date.now() - minutes * 60 * 1000).toISOString();
 
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
 
@@ -181,6 +187,286 @@ const stationById = new Map(STATIONS.map((s) => [s.id, s]));
 /** Derived name maps (used by existing screens) */
 const facilityNames: Record<string, string> = Object.fromEntries(FACILITIES.map((f) => [f.id, f.name]));
 const stationNames: Record<string, string> = Object.fromEntries(STATIONS.map((s) => [s.id, s.name]));
+
+/** -----------------------------
+ *  Queue events + station stats (mock)
+ *  ----------------------------- */
+type CreateQueueEventPayload = Omit<QueueEvent, 'id' | 'ts'> & { ts?: string };
+
+const makeQueueEventId = (n: number) => `qe-${String(n).padStart(4, '0')}`;
+
+const seedQueueEvents: QueueEvent[] = [
+  {
+    id: makeQueueEventId(1),
+    facilityId: 'fac-mg-01',
+    stationId: 'st-mg-g1',
+    carrierId: 'car-001',
+    bookingId: 'b-MG-0001',
+    type: 'queue_joined',
+    ts: minutesAgo(210),
+  },
+  {
+    id: makeQueueEventId(2),
+    facilityId: 'fac-mg-01',
+    stationId: 'st-mg-g1',
+    carrierId: 'car-001',
+    bookingId: 'b-MG-0001',
+    type: 'service_start',
+    ts: minutesAgo(190),
+  },
+  {
+    id: makeQueueEventId(3),
+    facilityId: 'fac-mg-01',
+    stationId: 'st-mg-g1',
+    carrierId: 'car-001',
+    bookingId: 'b-MG-0001',
+    type: 'service_end',
+    ts: minutesAgo(165),
+  },
+  {
+    id: makeQueueEventId(4),
+    facilityId: 'fac-mg-01',
+    stationId: 'st-mg-g1',
+    carrierId: 'car-002',
+    bookingId: 'b-MG-0002',
+    type: 'queue_joined',
+    ts: minutesAgo(120),
+  },
+  {
+    id: makeQueueEventId(5),
+    facilityId: 'fac-mg-01',
+    stationId: 'st-mg-g1',
+    carrierId: 'car-002',
+    bookingId: 'b-MG-0002',
+    type: 'service_start',
+    ts: minutesAgo(100),
+  },
+  {
+    id: makeQueueEventId(6),
+    facilityId: 'fac-mg-01',
+    stationId: 'st-mg-g1',
+    carrierId: 'car-002',
+    bookingId: 'b-MG-0002',
+    type: 'service_end',
+    ts: minutesAgo(80),
+  },
+  {
+    id: makeQueueEventId(7),
+    facilityId: 'fac-mg-01',
+    stationId: 'st-mg-g1',
+    carrierId: 'car-003',
+    bookingId: 'b-MG-0003',
+    type: 'queue_joined',
+    ts: minutesAgo(30),
+  },
+  {
+    id: makeQueueEventId(8),
+    facilityId: 'fac-mg-01',
+    stationId: 'st-mg-g1',
+    carrierId: 'car-003',
+    bookingId: 'b-MG-0003',
+    type: 'service_start',
+    ts: minutesAgo(20),
+  },
+  {
+    id: makeQueueEventId(9),
+    facilityId: 'fac-mg-01',
+    stationId: 'st-mg-g1',
+    carrierId: 'car-003',
+    bookingId: 'b-MG-0003',
+    type: 'service_end',
+    ts: minutesAgo(8),
+  },
+  {
+    id: makeQueueEventId(10),
+    facilityId: 'fac-mg-01',
+    stationId: 'st-mg-g1',
+    carrierId: 'car-004',
+    bookingId: 'b-MG-0004',
+    type: 'queue_joined',
+    ts: minutesAgo(5),
+  },
+  {
+    id: makeQueueEventId(11),
+    facilityId: 'fac-lk-01',
+    stationId: 'st-lk-g2',
+    carrierId: 'car-010',
+    bookingId: 'b-LK-0001',
+    type: 'queue_joined',
+    ts: minutesAgo(160),
+  },
+  {
+    id: makeQueueEventId(12),
+    facilityId: 'fac-lk-01',
+    stationId: 'st-lk-g2',
+    carrierId: 'car-010',
+    bookingId: 'b-LK-0001',
+    type: 'service_start',
+    ts: minutesAgo(140),
+  },
+  {
+    id: makeQueueEventId(13),
+    facilityId: 'fac-lk-01',
+    stationId: 'st-lk-g2',
+    carrierId: 'car-010',
+    bookingId: 'b-LK-0001',
+    type: 'service_end',
+    ts: minutesAgo(120),
+  },
+  {
+    id: makeQueueEventId(14),
+    facilityId: 'fac-lk-01',
+    stationId: 'st-lk-g2',
+    carrierId: 'car-011',
+    bookingId: 'b-LK-0002',
+    type: 'queue_joined',
+    ts: minutesAgo(70),
+  },
+  {
+    id: makeQueueEventId(15),
+    facilityId: 'fac-lk-01',
+    stationId: 'st-lk-g2',
+    carrierId: 'car-011',
+    bookingId: 'b-LK-0002',
+    type: 'service_start',
+    ts: minutesAgo(55),
+  },
+  {
+    id: makeQueueEventId(16),
+    facilityId: 'fac-lk-01',
+    stationId: 'st-lk-g2',
+    carrierId: 'car-011',
+    bookingId: 'b-LK-0002',
+    type: 'service_end',
+    ts: minutesAgo(40),
+  },
+  {
+    id: makeQueueEventId(17),
+    facilityId: 'fac-lk-01',
+    stationId: 'st-lk-g2',
+    carrierId: 'car-012',
+    bookingId: 'b-LK-0003',
+    type: 'queue_joined',
+    ts: minutesAgo(15),
+  },
+  {
+    id: makeQueueEventId(18),
+    facilityId: 'fac-gz-01',
+    stationId: 'st-gz-d1',
+    carrierId: 'car-020',
+    bookingId: 'b-GZ-0001',
+    type: 'queue_joined',
+    ts: minutesAgo(200),
+  },
+  {
+    id: makeQueueEventId(19),
+    facilityId: 'fac-gz-01',
+    stationId: 'st-gz-d1',
+    carrierId: 'car-020',
+    bookingId: 'b-GZ-0001',
+    type: 'service_start',
+    ts: minutesAgo(175),
+  },
+  {
+    id: makeQueueEventId(20),
+    facilityId: 'fac-gz-01',
+    stationId: 'st-gz-d1',
+    carrierId: 'car-020',
+    bookingId: 'b-GZ-0001',
+    type: 'service_end',
+    ts: minutesAgo(130),
+  },
+  {
+    id: makeQueueEventId(21),
+    facilityId: 'fac-gz-01',
+    stationId: 'st-gz-d1',
+    carrierId: 'car-021',
+    bookingId: 'b-GZ-0002',
+    type: 'queue_joined',
+    ts: minutesAgo(60),
+  },
+  {
+    id: makeQueueEventId(22),
+    facilityId: 'fac-gz-01',
+    stationId: 'st-gz-d1',
+    carrierId: 'car-021',
+    bookingId: 'b-GZ-0002',
+    type: 'service_start',
+    ts: minutesAgo(45),
+  },
+  {
+    id: makeQueueEventId(23),
+    facilityId: 'fac-gz-01',
+    stationId: 'st-gz-d1',
+    carrierId: 'car-021',
+    bookingId: 'b-GZ-0002',
+    type: 'service_end',
+    ts: minutesAgo(10),
+  },
+];
+
+let queueEvents = [...seedQueueEvents];
+let queueEventCounter = seedQueueEvents.length + 1;
+
+export const listMockQueueEvents = (params?: {
+  facilityId?: string;
+  stationId?: string;
+  carrierId?: string;
+  bookingId?: string;
+  since?: string;
+}) => {
+  let next = [...queueEvents];
+
+  if (params?.facilityId) next = next.filter((event) => event.facilityId === params.facilityId);
+  if (params?.stationId) next = next.filter((event) => event.stationId === params.stationId);
+  if (params?.carrierId) next = next.filter((event) => event.carrierId === params.carrierId);
+  if (params?.bookingId) next = next.filter((event) => event.bookingId === params.bookingId);
+  if (params?.since) {
+    const sinceMs = new Date(params.since).getTime();
+    if (!Number.isNaN(sinceMs)) {
+      next = next.filter((event) => new Date(event.ts).getTime() >= sinceMs);
+    }
+  }
+
+  return next.map((event) => ({ ...event }));
+};
+
+export const createMockQueueEvent = (payload: CreateQueueEventPayload) => {
+  const event: QueueEvent = {
+    id: makeQueueEventId(queueEventCounter++),
+    facilityId: payload.facilityId,
+    stationId: payload.stationId,
+    carrierId: payload.carrierId,
+    bookingId: payload.bookingId ?? undefined,
+    type: payload.type as QueueEventType,
+    ts: payload.ts ?? isoNow(),
+  };
+
+  queueEvents = [event, ...queueEvents];
+  return { ...event };
+};
+
+let stationStats: StationStats[] = [];
+
+export const listMockStationStats = (windowMinutes?: number) => {
+  const next = windowMinutes
+    ? stationStats.filter((stat) => stat.windowMinutes === windowMinutes)
+    : [...stationStats];
+  return next.map((stat) => ({ ...stat }));
+};
+
+export const upsertMockStationStats = (stats: StationStats[]) => {
+  for (const stat of stats) {
+    const idx = stationStats.findIndex(
+      (entry) => entry.stationId === stat.stationId && entry.windowMinutes === stat.windowMinutes,
+    );
+    if (idx >= 0) {
+      stationStats[idx] = { ...stationStats[idx], ...stat };
+    } else {
+      stationStats.push({ ...stat });
+    }
+  }
+};
 
 /** Optional helper exports for UI */
 export const listMockFacilities = () => [...FACILITIES];
@@ -623,6 +909,9 @@ export const resetMockData = () => {
   issues = [
     ...issues.slice(0, 2), // keep initial two (or rebuild if you prefer)
   ];
+  queueEvents = [...seedQueueEvents];
+  queueEventCounter = seedQueueEvents.length + 1;
+  stationStats = [];
   bookingExtras.clear();
   bookingExtras.set(seedBookings[0].id, { notes: 'Gümrük evrakı: T1 + fatura çıktısı hazır.' });
   bookingExtras.set(seedBookings[1].id, { notes: 'Kapı B hızlı geçiş — palet sayısı: 18.' });

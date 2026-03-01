@@ -4,10 +4,10 @@ export type Coordinates = { latitude: number; longitude: number };
 
 type GeocodeResponse = {
   status: string;
-  results?: Array<{
+  results?: {
     formatted_address?: string;
     geometry?: { location?: { lat: number; lng: number } };
-  }>;
+  }[];
   error_message?: string;
 };
 

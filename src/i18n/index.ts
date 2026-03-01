@@ -1,4 +1,4 @@
-import * as Localization from 'expo-localization';
+import '@/polyfills/intl-plural-rules';
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 
@@ -47,8 +47,7 @@ const resources = {
 } as const;
 
 const supported = Object.keys(resources);
-const systemLocale = Localization.getLocales()?.[0]?.languageCode ?? 'en';
-const fallbackLng = supported.includes(systemLocale) ? systemLocale : 'en';
+const fallbackLng = 'en';
 
 // eslint-disable-next-line import/no-named-as-default-member
 void i18n.use(initReactI18next).init({

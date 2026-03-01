@@ -27,10 +27,15 @@ const firebaseAuthMessages: Record<string, string> = {
   'auth/user-disabled': 'This account has been disabled.',
   'auth/user-not-found': 'No account found for this email.',
   'auth/wrong-password': 'Incorrect password.',
+  'auth/invalid-credential': 'Invalid email or password.',
   'auth/email-already-in-use': 'Email address is already in use.',
   'auth/weak-password': 'Password is too weak.',
   'auth/too-many-requests': 'Too many attempts. Try again later.',
   'auth/network-request-failed': 'Network error. Check your connection.',
+  'auth/operation-not-allowed': 'Email/password sign-in is disabled in Firebase Authentication.',
+  'auth/unauthorized-domain': 'This domain is not authorized in Firebase Authentication.',
+  'auth/invalid-api-key': 'Firebase API key is invalid.',
+  'auth/internal-error': 'Firebase returned an internal error. Check your Authentication settings.',
 };
 
 export const mapApiError = (error: unknown): ApiError => {

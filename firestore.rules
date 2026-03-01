@@ -1,0 +1,68 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function uid() {
+      return request.auth.uid;
+    }
+
+    function isOwner(data) {
+      return isSignedIn() && (
+        data.Carrier_ID == uid() ||
+        data.carrierId == uid() ||
+        data.CarrierId == uid() ||
+        data.carrierID == uid() ||
+        data.carrier_id == uid()
+      );
+    }
+
+    // Reference data: readable for any signed-in user.
+    match /Facility/{id} {
+      allow read: if isSignedIn();
+    }
+
+    match /Station/{id} {
+      allow read: if isSignedIn();
+    }
+
+    // Metrics / snapshots: readable for any signed-in user.
+    match /Report/{id} {
+      allow read: if isSignedIn();
+    }
+
+    match /StationStat/{id} {
+      allow read: if isSignedIn();
+    }
+
+    // Core user-owned data.
+    match /Booking/{id} {
+      allow create: if isOwner(request.resource.data);
+      allow read: if isOwner(resource.data);
+      allow update: if isOwner(resource.data) && isOwner(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /Issue/{id} {
+      allow create: if isOwner(request.resource.data);
+      allow read: if isOwner(resource.data);
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // Event streams: allow users to write their own events; read gated to signed-in.
+    match /QueueEvent/{id} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    match /QueueEntry/{id} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+  }
+}
+

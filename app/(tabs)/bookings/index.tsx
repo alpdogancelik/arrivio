@@ -1,4 +1,4 @@
-﻿import React, { useMemo } from "react";
+import React, { useMemo } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -18,13 +18,17 @@ import { Image } from "expo-image";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { fetchBookings } from "@/api/bookings";
+import { fetchFacilities } from "@/api/facilities";
+import { fetchStations } from "@/api/stations";
 import { queryKeys } from "@/query/keys";
 import { images } from "@/constants/images";
 
 type BookingLike = {
   id?: string;
   stationName?: string;
+  stationId?: string;
   facilityName?: string;
+  facilityId?: string;
   arrivalTime?: string;
   status?: string;
   etaMinutes?: number;
@@ -39,6 +43,7 @@ const statusTone = (status?: string) => {
   switch ((status ?? "").toLowerCase()) {
     case "confirmed":
     case "arrived":
+    case "servicing":
       return { fg: "#22c55e", bg: "#22c55e22", bd: "#22c55e44" };
     case "pending":
       return { fg: "#facc15", bg: "#facc1522", bd: "#facc1544" };
@@ -76,24 +81,59 @@ export default function BookingsIndexScreen() {
     queryFn: () => fetchBookings(),
   });
 
-  const bookings: BookingLike[] = Array.isArray(data) ? (data as BookingLike[]) : [];
+  const { data: facilitiesRaw } = useQuery({
+    queryKey: queryKeys.facilities(),
+    queryFn: fetchFacilities,
+    staleTime: 60_000,
+  });
+
+  const { data: stationsRaw } = useQuery({
+    queryKey: queryKeys.stations(),
+    queryFn: () => fetchStations(),
+    staleTime: 60_000,
+  });
+
+  const bookings = useMemo<BookingLike[]>(
+    () => (Array.isArray(data) ? (data as BookingLike[]) : []),
+    [data],
+  );
+  const facilities = useMemo(() => (Array.isArray(facilitiesRaw) ? facilitiesRaw : []), [facilitiesRaw]);
+  const stations = useMemo(() => (Array.isArray(stationsRaw) ? stationsRaw : []), [stationsRaw]);
+
+  const facilityById = useMemo(() => new Map(facilities.map((facility) => [facility.id, facility])), [facilities]);
+  const stationById = useMemo(() => new Map(stations.map((station) => [station.id, station])), [stations]);
+
+  const enriched = useMemo(() => {
+    return bookings.map((booking) => {
+      const station = stationById.get(booking.stationId ?? "");
+      const resolvedFacilityId = booking.facilityId ?? station?.facilityId;
+      return {
+        ...booking,
+        facilityName:
+          booking.facilityName ??
+          facilityById.get(resolvedFacilityId ?? "")?.name ??
+          station?.facilityId,
+        stationName: booking.stationName ?? station?.name,
+      };
+    });
+  }, [bookings, facilityById, stationById]);
 
   const sorted = useMemo(() => {
-    const copy = [...bookings];
+    const copy = [...enriched];
     copy.sort((a, b) => {
       const ta = a.arrivalTime ? new Date(a.arrivalTime).getTime() : 0;
       const tb = b.arrivalTime ? new Date(b.arrivalTime).getTime() : 0;
       return tb - ta;
     });
     return copy;
-  }, [bookings]);
+  }, [enriched]);
 
   const stats = useMemo(() => {
-    const total = bookings.length;
-    const cancelled = bookings.filter((b) => (b.status ?? "").toLowerCase() === "cancelled").length;
+    const total = enriched.length;
+    const cancelled = enriched.filter((b) => (b.status ?? "").toLowerCase() === "cancelled").length;
     const active = total - cancelled;
     return { total, active, cancelled };
-  }, [bookings]);
+  }, [enriched]);
 
   const Header = (
     <ThemedView style={styles.headerWrap}>

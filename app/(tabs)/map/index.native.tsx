@@ -1,14 +1,19 @@
-﻿import { ThemedText } from '@/components/themed-text';
+import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, Platform, Pressable, StyleSheet, View } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
+import { useQuery } from '@tanstack/react-query';
 
 import { images } from '@/constants/images';
+import { fetchBookings } from '@/api/bookings';
+import { fetchFacilities } from '@/api/facilities';
+import { fetchStations } from '@/api/stations';
+import { queryKeys } from '@/query/keys';
 
 type Availability = 'open' | 'limited' | 'closed';
 
@@ -23,7 +28,7 @@ type FacilityPin = {
   lastUpdatedMinAgo: number;
 };
 
-const facilities: FacilityPin[] = [
+const STATIC_FACILITIES: FacilityPin[] = [
   {
     id: 'fac-mg-01',
     name: 'Famagusta Port Entry (Customs)',
@@ -92,6 +97,22 @@ const STATUS_COLORS: Record<Availability, string> = {
   closed: '#ef4444',
 };
 
+const normalizeAvailability = (value?: string): Availability => {
+  const raw = String(value ?? '').toLowerCase();
+  if (!raw) return 'open';
+  if (raw.includes('close') || raw.includes('inactive') || raw.includes('blocked')) return 'closed';
+  if (raw.includes('limit') || raw.includes('busy') || raw.includes('partial')) return 'limited';
+  return 'open';
+};
+
+const getEtaMinutes = (arrivalTime?: string) => {
+  if (!arrivalTime) return undefined;
+  const arrival = new Date(arrivalTime);
+  if (Number.isNaN(arrival.getTime())) return undefined;
+  const diff = Math.round((arrival.getTime() - Date.now()) / 60000);
+  return diff > 0 ? diff : 0;
+};
+
 const darkMapStyle = [
   { elementType: 'geometry', stylers: [{ color: '#0b0b0b' }] },
   { elementType: 'labels.text.fill', stylers: [{ color: '#a3a3a3' }] },
@@ -101,6 +122,13 @@ const darkMapStyle = [
   { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#1f1f1f' }] },
   { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0a1620' }] },
 ];
+
+const DEFAULT_REGION = {
+  latitude: 35.1859,
+  longitude: 33.3619,
+  latitudeDelta: 1.2,
+  longitudeDelta: 1.2,
+};
 
 function openDirections(facility: FacilityPin) {
   const { latitude, longitude, name } = facility;
@@ -121,13 +149,165 @@ export default function MapScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const mapRef = useRef<MapView | null>(null);
-  const [selectedId, setSelectedId] = useState(facilities[0]?.id);
+  const { data: facilitiesRaw } = useQuery({
+    queryKey: queryKeys.facilities(),
+    queryFn: fetchFacilities,
+    staleTime: 60_000,
+  });
 
-  const selected = useMemo(
-    () => facilities.find((f) => f.id === selectedId) ?? null,
-    [selectedId],
+  const { data: stationsRaw } = useQuery({
+    queryKey: queryKeys.stations(),
+    queryFn: () => fetchStations(),
+    staleTime: 60_000,
+  });
+
+  const { data: bookingsRaw } = useQuery({
+    queryKey: queryKeys.bookings(),
+    queryFn: () => fetchBookings(),
+    staleTime: 30_000,
+  });
+
+  const facilities = useMemo(() => (Array.isArray(facilitiesRaw) ? facilitiesRaw : []), [facilitiesRaw]);
+  const stations = useMemo(() => (Array.isArray(stationsRaw) ? stationsRaw : []), [stationsRaw]);
+  const bookings = useMemo(() => (Array.isArray(bookingsRaw) ? bookingsRaw : []), [bookingsRaw]);
+
+  const activeBookings = useMemo(
+    () =>
+      bookings.filter((booking: any) => {
+        const status = String(booking?.status ?? '').toLowerCase();
+        return status !== 'cancelled' && status !== 'completed';
+      }),
+    [bookings],
   );
+
+  const bookingsByFacility = useMemo(() => {
+    const grouped = new Map<string, any[]>();
+    for (const booking of activeBookings) {
+      const facilityId = booking?.facilityId;
+      if (!facilityId) continue;
+      if (!grouped.has(facilityId)) grouped.set(facilityId, []);
+      grouped.get(facilityId)?.push(booking);
+    }
+    return grouped;
+  }, [activeBookings]);
+
+  const bookingsByStation = useMemo(() => {
+    const grouped = new Map<string, any[]>();
+    for (const booking of activeBookings) {
+      const stationId = booking?.stationId;
+      if (!stationId) continue;
+      if (!grouped.has(stationId)) grouped.set(stationId, []);
+      grouped.get(stationId)?.push(booking);
+    }
+    return grouped;
+  }, [activeBookings]);
+
+  const facilityPins = useMemo(() => {
+    if (!facilities.length) return [];
+
+    const stationCoordByFacility = new Map<string, { latitude: number; longitude: number }>();
+    for (const station of stations) {
+      if (!station?.facilityId || typeof station?.latitude !== 'number' || typeof station?.longitude !== 'number') {
+        continue;
+      }
+      if (!stationCoordByFacility.has(station.facilityId)) {
+        stationCoordByFacility.set(station.facilityId, {
+          latitude: station.latitude,
+          longitude: station.longitude,
+        });
+      }
+    }
+
+    return facilities
+      .map((facility) => {
+        const coords = stationCoordByFacility.get(facility.id);
+        const latitude = typeof facility.latitude === 'number' ? facility.latitude : coords?.latitude;
+        const longitude = typeof facility.longitude === 'number' ? facility.longitude : coords?.longitude;
+        if (typeof latitude !== 'number' || typeof longitude !== 'number') return null;
+
+        const facilityBookings = bookingsByFacility.get(facility.id) ?? [];
+        const etaValues = facilityBookings
+          .map((booking: any) => booking?.etaMinutes ?? getEtaMinutes(booking?.arrivalTime))
+          .filter((value: number | undefined) => typeof value === 'number');
+        const avgEta = etaValues.length
+          ? Math.max(0, Math.round(etaValues.reduce((sum, v) => sum + v, 0) / etaValues.length))
+          : null;
+
+        const latestUpdate = facilityBookings
+          .map((booking: any) => booking?.updatedAt ?? booking?.arrivalTime)
+          .map((value: string | undefined) => (value ? new Date(value).getTime() : 0))
+          .reduce((max, value) => Math.max(max, value), 0);
+        const lastUpdatedMinAgo = latestUpdate
+          ? Math.max(1, Math.round((Date.now() - latestUpdate) / 60000))
+          : 0;
+
+        return {
+          id: facility.id,
+          name: facility.name ?? facility.id,
+          latitude,
+          longitude,
+          availability: normalizeAvailability(facility.status),
+          queueLength: facilityBookings.length,
+          etaMin: avgEta,
+          lastUpdatedMinAgo,
+        } as FacilityPin;
+      })
+      .filter(Boolean) as FacilityPin[];
+  }, [bookingsByFacility, facilities, stations]);
+
+  const stationPins = useMemo(() => {
+    if (!stations.length) return [];
+
+    return stations
+      .map((station) => {
+        if (typeof station.latitude !== 'number' || typeof station.longitude !== 'number') return null;
+        const stationBookings = bookingsByStation.get(station.id) ?? [];
+        const etaValues = stationBookings
+          .map((booking: any) => booking?.etaMinutes ?? getEtaMinutes(booking?.arrivalTime))
+          .filter((value: number | undefined) => typeof value === 'number');
+        const avgEta = etaValues.length
+          ? Math.max(0, Math.round(etaValues.reduce((sum, v) => sum + v, 0) / etaValues.length))
+          : null;
+
+        const latestUpdate = stationBookings
+          .map((booking: any) => booking?.updatedAt ?? booking?.arrivalTime)
+          .map((value: string | undefined) => (value ? new Date(value).getTime() : 0))
+          .reduce((max, value) => Math.max(max, value), 0);
+        const lastUpdatedMinAgo = latestUpdate
+          ? Math.max(1, Math.round((Date.now() - latestUpdate) / 60000))
+          : 0;
+
+        return {
+          id: station.id,
+          name: station.name ?? station.id,
+          latitude: station.latitude,
+          longitude: station.longitude,
+          availability: normalizeAvailability(station.status),
+          queueLength: stationBookings.length,
+          etaMin: avgEta,
+          lastUpdatedMinAgo,
+        } as FacilityPin;
+      })
+      .filter(Boolean) as FacilityPin[];
+  }, [bookingsByStation, stations]);
+
+  const pins = useMemo(() => {
+    if (facilityPins.length) return facilityPins;
+    if (stationPins.length) return stationPins;
+    return STATIC_FACILITIES;
+  }, [facilityPins, stationPins]);
+
+  const mapRef = useRef<MapView | null>(null);
+  const [selectedId, setSelectedId] = useState<string | undefined>(pins[0]?.id);
+
+  useEffect(() => {
+    if (!pins.length) return;
+    if (!selectedId || !pins.find((pin) => pin.id === selectedId)) {
+      setSelectedId(pins[0]?.id);
+    }
+  }, [pins, selectedId]);
+
+  const selected = useMemo(() => pins.find((f) => f.id === selectedId) ?? null, [pins, selectedId]);
 
   const statusMeta = useMemo(
     () => ({
@@ -139,21 +319,22 @@ export default function MapScreen() {
   );
 
   const counts = useMemo(() => {
-    return facilities.reduce(
+    return pins.reduce(
       (acc, f) => {
         acc[f.availability] += 1;
         return acc;
       },
       { open: 0, limited: 0, closed: 0 } as Record<Availability, number>,
     );
-  }, []);
+  }, [pins]);
 
   // KKTC odaklı zoom (Türkiye delta'sını düşürdük)
   const initialRegion = useMemo(() => {
-    const lat = facilities.reduce((sum, f) => sum + f.latitude, 0) / facilities.length;
-    const lng = facilities.reduce((sum, f) => sum + f.longitude, 0) / facilities.length;
+    if (!pins.length) return DEFAULT_REGION;
+    const lat = pins.reduce((sum, f) => sum + f.latitude, 0) / pins.length;
+    const lng = pins.reduce((sum, f) => sum + f.longitude, 0) / pins.length;
     return { latitude: lat, longitude: lng, latitudeDelta: 1.2, longitudeDelta: 1.2 };
-  }, []);
+  }, [pins]);
 
   const focusFacility = useCallback((facility: FacilityPin) => {
     setSelectedId(facility.id);
@@ -202,7 +383,7 @@ export default function MapScreen() {
           left: 16,
         }}
       >
-        {facilities.map((facility) => {
+        {pins.map((facility) => {
           const meta = statusMeta[facility.availability];
           const isSelected = facility.id === selectedId;
 
@@ -354,7 +535,7 @@ export default function MapScreen() {
           </View>
 
           <View style={styles.facilityChipsRow}>
-            {facilities.map((facility) => {
+            {pins.map((facility) => {
               const meta = statusMeta[facility.availability];
               const active = facility.id === selectedId;
 

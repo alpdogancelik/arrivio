@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -18,6 +18,11 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 
 import { fetchBooking, cancelBooking } from "@/api/bookings";
+import { fetchFacilities } from "@/api/facilities";
+import { fetchStationRecommendation } from "@/api/recommendations";
+import { fetchStations } from "@/api/stations";
+import { fetchIssues } from "@/api/issues";
+import { fetchQueueEntries } from "@/api/queue-entries";
 import { mapApiError } from "@/api/errors";
 import { queryKeys } from "@/query/keys";
 import { images } from "@/constants/images";
@@ -53,6 +58,8 @@ const formatWhen = (iso?: string) => {
   });
 };
 
+const formatSlot = (slot?: string) => (typeof slot === "string" && slot.trim() ? slot.trim() : null);
+
 export default function BookingDetailScreen() {
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const router = useRouter();
@@ -66,6 +73,18 @@ export default function BookingDetailScreen() {
     enabled: !!bookingId,
     queryKey: queryKeys.booking(bookingId),
     queryFn: () => fetchBooking(bookingId),
+  });
+
+  const { data: facilitiesRaw } = useQuery({
+    queryKey: queryKeys.facilities(),
+    queryFn: fetchFacilities,
+    staleTime: 60_000,
+  });
+
+  const { data: stationsRaw } = useQuery({
+    queryKey: queryKeys.stations(),
+    queryFn: () => fetchStations(),
+    staleTime: 60_000,
   });
 
   const cancelMut = useMutation({
@@ -95,6 +114,65 @@ export default function BookingDetailScreen() {
     ]);
   };
 
+  const facilities = useMemo(() => (Array.isArray(facilitiesRaw) ? facilitiesRaw : []), [facilitiesRaw]);
+  const stations = useMemo(() => (Array.isArray(stationsRaw) ? stationsRaw : []), [stationsRaw]);
+  const facilityById = useMemo(() => new Map(facilities.map((facility) => [facility.id, facility])), [facilities]);
+  const stationById = useMemo(() => new Map(stations.map((station) => [station.id, station])), [stations]);
+
+  const booking = useMemo(() => {
+    if (!data) return null;
+    const station = stationById.get(data.stationId ?? "");
+    const resolvedFacilityId = data.facilityId ?? station?.facilityId;
+
+    return {
+      ...data,
+      facilityId: resolvedFacilityId,
+      facilityName:
+        data.facilityName ?? facilityById.get(resolvedFacilityId ?? "")?.name ?? station?.facilityId,
+      stationName: data.stationName ?? station?.name,
+    };
+  }, [data, facilityById, stationById]);
+
+  const resolvedFacilityId = booking?.facilityId;
+  const badge = tone(booking?.status);
+  const bookingShortId = String(booking?.id ?? bookingId).slice(-6).toUpperCase();
+  const arrivalOrSlot = String(booking?.arrivalTime ?? booking?.slot ?? "");
+
+  const { data: recoData } = useQuery({
+    enabled: Boolean(booking && resolvedFacilityId && arrivalOrSlot),
+    queryKey: queryKeys.stationRecommendation(resolvedFacilityId, arrivalOrSlot),
+    queryFn: () =>
+      fetchStationRecommendation({
+        facilityId: resolvedFacilityId,
+        arrivalTime: arrivalOrSlot,
+      }),
+    staleTime: 30_000,
+  });
+
+  const { data: issuesRaw } = useQuery({
+    enabled: Boolean(booking?.id),
+    queryKey: queryKeys.issues({ bookingId: String(booking?.id ?? "") }),
+    queryFn: () => fetchIssues({ bookingId: String(booking?.id ?? "") }),
+    staleTime: 30_000,
+  });
+
+  const { data: queueEntriesRaw } = useQuery({
+    enabled: Boolean(booking?.id),
+    queryKey: queryKeys.queueEntries({ bookingId: String(booking?.id ?? "") }),
+    queryFn: () => fetchQueueEntries({ bookingId: String(booking?.id ?? "") }),
+    staleTime: 15_000,
+  });
+
+  const issues = Array.isArray(issuesRaw) ? issuesRaw : [];
+  const queueEntries = Array.isArray(queueEntriesRaw) ? queueEntriesRaw : [];
+  const latestQueueEntry = queueEntries
+    .slice()
+    .sort((a: any, b: any) => {
+      const ta = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const tb = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return tb - ta;
+    })[0];
+
   if (!bookingId) {
     return (
       <SafeAreaView style={styles.container}>
@@ -122,10 +200,6 @@ export default function BookingDetailScreen() {
       </SafeAreaView>
     );
   }
-
-  const booking: any = data;
-  const badge = tone(booking?.status);
-  const bookingShortId = String(booking?.id ?? bookingId).slice(-6).toUpperCase();
 
   return (
     <SafeAreaView style={styles.container}>
@@ -206,6 +280,13 @@ export default function BookingDetailScreen() {
               <ThemedText style={styles.infoText}>{formatWhen(booking.arrivalTime)}</ThemedText>
             </View>
 
+            {formatSlot(booking.slot) ? (
+              <View style={styles.infoRow}>
+                <Ionicons name="time-outline" size={18} color="#8b8b8b" />
+                <ThemedText style={styles.infoText}>{String(formatSlot(booking.slot))}</ThemedText>
+              </View>
+            ) : null}
+
             <View style={styles.infoRow}>
               <Ionicons name="time-outline" size={18} color="#8b8b8b" />
               <ThemedText style={styles.infoText}>
@@ -221,6 +302,92 @@ export default function BookingDetailScreen() {
                 {t("common:bookingId", { id: bookingShortId })}
               </ThemedText>
             </View>
+          </ThemedView>
+
+          <ThemedView style={styles.card}>
+            <Image source={images.statistics} style={styles.cardArt} contentFit="contain" />
+            <ThemedText style={styles.timelineTitle}>
+              {t("booking:recommendation", { defaultValue: "Recommendation" })}
+            </ThemedText>
+
+            <View style={styles.hr} />
+
+            <ThemedText style={styles.stepText}>
+              {booking?.recommendedStationId
+                ? t("booking:recommendedStation", {
+                    defaultValue: `Recommended: ${booking.recommendedStationId}`,
+                  })
+                : recoData?.suggestedStationId
+                  ? t("booking:recommendedStation", {
+                      defaultValue: `Recommended: ${recoData.suggestedStationId}`,
+                    })
+                  : t("booking:etaUnknown", { defaultValue: "No recommendation yet." })}
+            </ThemedText>
+
+            {typeof booking?.recommendedWaitMin === "number" ? (
+              <ThemedText style={[styles.stepText, { marginTop: 8 }]}>
+                {t("booking:estWait", {
+                  count: booking.recommendedWaitMin,
+                  defaultValue: `Est. wait: ${booking.recommendedWaitMin} min`,
+                })}
+              </ThemedText>
+            ) : null}
+          </ThemedView>
+
+          <ThemedView style={styles.card}>
+            <Image source={images.clock} style={styles.cardArt} contentFit="contain" />
+            <ThemedText style={styles.timelineTitle}>
+              {t("booking:queueStatus", { defaultValue: "Queue status" })}
+            </ThemedText>
+
+            <View style={styles.hr} />
+
+            {latestQueueEntry ? (
+              <>
+                <ThemedText style={styles.stepText}>
+                  {t("booking:queueEntryStatus", {
+                    defaultValue: `Status: ${String(latestQueueEntry.status ?? "-")}`,
+                  })}
+                </ThemedText>
+                <ThemedText style={[styles.stepText, { marginTop: 8 }]}>
+                  {t("booking:queueEntryCreatedAt", {
+                    defaultValue: `Updated: ${formatWhen(latestQueueEntry.createdAt)}`,
+                  })}
+                </ThemedText>
+              </>
+            ) : (
+              <ThemedText style={styles.stepText}>
+                {t("booking:noQueueEntry", { defaultValue: "No queue entry found for this booking." })}
+              </ThemedText>
+            )}
+          </ThemedView>
+
+          <ThemedView style={styles.card}>
+            <Image source={images.alarm} style={styles.cardArt} contentFit="contain" />
+            <ThemedText style={styles.timelineTitle}>
+              {t("issue:recentIssues", { defaultValue: "Issues" })}
+            </ThemedText>
+
+            <View style={styles.hr} />
+
+            {issues.length ? (
+              issues
+                .slice(0, 3)
+                .map((issue: any) => (
+                  <View key={String(issue.id)} style={{ marginTop: 10 }}>
+                    <ThemedText style={styles.stepText}>
+                      {String(issue.category ?? "Issue")} • {String(issue.status ?? "").toUpperCase()}
+                    </ThemedText>
+                    <ThemedText style={[styles.stepText, { color: "#9aa0a6", marginTop: 4 }]}>
+                      {String(issue.description ?? "")}
+                    </ThemedText>
+                  </View>
+                ))
+            ) : (
+              <ThemedText style={styles.stepText}>
+                {t("issue:noIssues", { defaultValue: "No issues yet." })}
+              </ThemedText>
+            )}
           </ThemedView>
 
           <ThemedView style={styles.timeline}>

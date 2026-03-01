@@ -1,4 +1,4 @@
-﻿// app/(tabs)/home/index.tsx
+// app/(tabs)/home/index.tsx
 import React, { memo, useMemo } from 'react';
 import {
   ActivityIndicator,
@@ -22,6 +22,8 @@ import { ThemedView } from '@/components/themed-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 
 import { fetchBookings } from '@/api/bookings';
+import { fetchFacilities } from '@/api/facilities';
+import { fetchStations } from '@/api/stations';
 import type { Booking } from '@/types/api';
 import { queryKeys } from '@/query/keys';
 import { appConfig } from '@/config';
@@ -177,7 +179,23 @@ export default function Dashboard() {
     retry: 1,
   });
 
-  const bookings = Array.isArray(bookingsRaw) ? bookingsRaw : [];
+  const { data: facilitiesRaw } = useQuery({
+    queryKey: queryKeys.facilities(),
+    queryFn: fetchFacilities,
+    staleTime: 60_000,
+  });
+
+  const { data: stationsRaw } = useQuery({
+    queryKey: queryKeys.stations(),
+    queryFn: () => fetchStations(),
+    staleTime: 60_000,
+  });
+
+  const bookings = useMemo(() => (Array.isArray(bookingsRaw) ? bookingsRaw : []), [bookingsRaw]);
+  const facilities = useMemo(() => (Array.isArray(facilitiesRaw) ? facilitiesRaw : []), [facilitiesRaw]);
+  const stations = useMemo(() => (Array.isArray(stationsRaw) ? stationsRaw : []), [stationsRaw]);
+  const facilityById = useMemo(() => new Map(facilities.map((facility) => [facility.id, facility])), [facilities]);
+  const stationById = useMemo(() => new Map(stations.map((station) => [station.id, station])), [stations]);
   const active = useMemo(() => getActiveBooking(bookings), [bookings]);
   const isErrored = !!error;
 
@@ -189,8 +207,13 @@ export default function Dashboard() {
   const AVG_DWELL_DELTA = `-${t('common:mins', { count: 3 })}`;
 
   const name = user?.name ?? t('home:guest', { defaultValue: 'Carrier' });
+  const activeStation = active?.stationId ? stationById.get(active.stationId) : undefined;
+  const resolvedFacilityId = active?.facilityId ?? activeStation?.facilityId;
   const facilityName =
-    active?.facilityId === 'f1' ? 'Ankara Logistics Center' : t('home:facilityFallback', { defaultValue: 'Facility' });
+    active?.facilityName ??
+    facilityById.get(resolvedFacilityId ?? '')?.name ??
+    activeStation?.facilityId ??
+    t('home:facilityFallback', { defaultValue: 'Facility' });
 
   const queueEst = active?.etaMinutes ? `${active.etaMinutes} min` : active ? '18 min' : 'TBD';
   const arrivalTime = active ? formatArrival(active.arrivalTime) : '—';
@@ -406,7 +429,10 @@ export default function Dashboard() {
                 <>
                   <InfoRow label={t('home:facility')} value={active.facilityName ?? facilityName} />
                   <View style={styles.divider} />
-                  <InfoRow label={t('home:station')} value={active.stationName ?? active.stationId} />
+                  <InfoRow
+                    label={t('home:station')}
+                    value={active.stationName ?? activeStation?.name ?? active.stationId ?? '-'}
+                  />
                   <View style={styles.divider} />
                   <InfoRow label={t('home:arrival')} value={arrivalTime} />
                   <View style={styles.divider} />

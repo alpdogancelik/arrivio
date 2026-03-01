@@ -1,4 +1,12 @@
-import { fetchMe, login as apiLogin, refreshSession, register as apiRegister, type RegisterPayload } from '@/api/auth';
+import {
+  fetchMe,
+  login as apiLogin,
+  requestPasswordReset as apiRequestPasswordReset,
+  refreshSession,
+  register as apiRegister,
+  updateCarrierProfile,
+  type RegisterPayload,
+} from '@/api/auth';
 import { configureClient } from '@/api/client';
 import { mapApiError } from '@/api/errors';
 import { USE_MOCK_DATA } from '@/config/mock';
@@ -16,6 +24,7 @@ type AuthContextType = {
   status: AuthStatus;
   error?: string;
   login: (email: string, password: string) => Promise<{ ok: boolean; message?: string }>;
+  requestPasswordReset: (email: string) => Promise<{ ok: boolean; message?: string }>;
   register: (payload: RegisterPayload) => Promise<{ ok: boolean; message?: string }>;
   logout: (message?: string) => Promise<void>;
   refreshSession: () => Promise<AuthTokens | null>;
@@ -41,6 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { user: session.user, tokens: session.tokens, status: 'authenticated', error: undefined };
   });
   const tokensRef = useRef<AuthTokens | null>(null);
+  const hydratedRef = useRef(false);
   const queryClient = useQueryClient();
 
   const logout = useCallback(
@@ -92,27 +102,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const hydrate = useCallback(async () => {
     setState((s) => ({ ...s, status: 'checking', error: undefined }));
-    const stored = await loadTokens();
-    if (!stored) {
-      setState({ user: null, tokens: null, status: 'unauthenticated', error: undefined });
-      return;
-    }
-
-    tokensRef.current = stored;
-    setState((s) => ({ ...s, tokens: stored }));
-
-    const activeTokens = (await refreshTokens()) ?? stored;
-    tokensRef.current = activeTokens;
-    await saveTokens(activeTokens);
-
     try {
-      const profile = await fetchMe();
-      if (profile.role && profile.role !== 'carrier') {
-        await logout('Carrier role required');
+      const stored = await loadTokens();
+      if (!stored) {
+        setState({ user: null, tokens: null, status: 'unauthenticated', error: undefined });
         return;
       }
 
-      setState({ user: profile, tokens: activeTokens, status: 'authenticated', error: undefined });
+      tokensRef.current = stored;
+      setState((s) => ({ ...s, tokens: stored }));
+
+      const activeTokens = (await refreshTokens()) ?? stored;
+      tokensRef.current = activeTokens;
+      await saveTokens(activeTokens);
+
+      try {
+        const profile = await fetchMe();
+        if (profile.role && profile.role !== 'carrier') {
+          await logout('Carrier role required');
+          return;
+        }
+
+        setState({ user: profile, tokens: activeTokens, status: 'authenticated', error: undefined });
+      } catch (error) {
+        const err = mapApiError(error);
+        await logout(err.message);
+      }
     } catch (error) {
       const err = mapApiError(error);
       await logout(err.message);
@@ -121,7 +136,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (USE_MOCK_DATA) return;
-    hydrate();
+    if (hydratedRef.current) return;
+    hydratedRef.current = true;
+    void hydrate();
   }, [hydrate]);
 
   const login = useCallback(
@@ -177,7 +194,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           queryClient.clear();
         }
 
-        return { ok: true };
+        return { ok: true, message: res.message };
       } catch (error) {
         const err = mapApiError(error);
         setState((s) => ({ ...s, status: 'unauthenticated', error: err.message }));
@@ -187,6 +204,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [logout, queryClient],
   );
 
+  const requestPasswordReset = useCallback(async (email: string) => {
+    try {
+      const res = await apiRequestPasswordReset(email);
+      return { ok: true, message: res.message };
+    } catch (error) {
+      const err = mapApiError(error);
+      return { ok: false, message: err.message };
+    }
+  }, []);
+
   const value = useMemo<AuthContextType>(
     () => ({
       user: state.user,
@@ -194,21 +221,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       status: state.status,
       error: state.error,
       login,
+      requestPasswordReset,
       register,
       logout,
       refreshSession: refreshTokens,
       setUser: (u: User | null) => setState((s) => ({ ...s, user: u })),
       updateUser: async (changes: Partial<User>) => {
-        let updated: User | null = null;
-        setState((s) => {
-          if (!s.user) return s;
-          updated = { ...s.user, ...changes };
-          return { ...s, user: updated };
-        });
+        if (!state.user) return null;
+        if (USE_MOCK_DATA) {
+          let updated: User | null = null;
+          setState((s) => {
+            if (!s.user) return s;
+            updated = { ...s.user, ...changes };
+            return { ...s, user: updated };
+          });
+          return updated;
+        }
+
+        const updated = await updateCarrierProfile(changes);
+        setState((s) => ({ ...s, user: updated }));
         return updated;
       },
     }),
-    [login, logout, refreshTokens, register, state.error, state.status, state.tokens, state.user],
+    [login, logout, refreshTokens, register, requestPasswordReset, state.error, state.status, state.tokens, state.user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

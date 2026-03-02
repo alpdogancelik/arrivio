@@ -3,7 +3,7 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
-import { Stack, usePathname, useRouter } from 'expo-router';
+import { Redirect, Stack, usePathname } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useRef, useState } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
@@ -28,6 +28,23 @@ const PRIMARY_FONT = 'ChairoSans';
 // When running through an Expo tunnel (exp.direct), assets/fonts may take longer to load,
 // which can cause repeated red-screen reload loops. We patch the observer to wait longer.
 const WEB_FONTFACEOBSERVER_TIMEOUT_MS = 6 * 60 * 1000; // 6 minutes
+const AUTH_PATHS = new Set([
+  '/login',
+  '/register',
+  '/forgot-password',
+  '/(auth)/login',
+  '/(auth)/register',
+  '/(auth)/forgot-password',
+]);
+const HOME_PATHS = new Set(['/home', '/(tabs)/home']);
+
+const normalizePathname = (pathname: string | null | undefined) => {
+  if (!pathname) return '/';
+  if (pathname.length > 1 && pathname.endsWith('/')) {
+    return pathname.slice(0, -1);
+  }
+  return pathname;
+};
 
 const patchWebFontFaceObserverTimeout = () => {
   if (Platform.OS !== 'web') return;
@@ -62,10 +79,10 @@ patchWebFontFaceObserverTimeout();
 
 function AuthGate() {
   const { status, error } = useAuth();
-  const pathname = usePathname();
-  const router = useRouter();
+  const pathname = normalizePathname(usePathname());
   const { t } = useTranslation(['common']);
-  const inAuthFlow = pathname === '/login' || pathname === '/register' || pathname === '/forgot-password';
+  const inAuthFlow = AUTH_PATHS.has(pathname);
+  const inHomeFlow = HOME_PATHS.has(pathname);
   const splashReleasedRef = useRef(false);
 
   useEffect(() => {
@@ -76,30 +93,11 @@ function AuthGate() {
     }
   }, [status]);
 
-  useEffect(() => {
-    const redirectTo = (targetPath: '/home' | '/login') => {
-      if (pathname === targetPath) return;
-      router.replace(targetPath);
-    };
-
-    if (AUTH_DISABLED) {
-      if (inAuthFlow) {
-        redirectTo('/home');
-      }
-      return;
-    }
-
-    if (status === 'authenticated' && inAuthFlow) {
-      redirectTo('/home');
-      return;
-    }
-
-    if (status === 'unauthenticated' && !inAuthFlow) {
-      redirectTo('/login');
-    }
-  }, [inAuthFlow, pathname, router, status]);
-
   if (AUTH_DISABLED) {
+    if (inAuthFlow && !inHomeFlow) {
+      return <Redirect href="/(tabs)/home" />;
+    }
+
     return (
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
@@ -110,6 +108,14 @@ function AuthGate() {
 
   if (status === 'checking' && !splashReleasedRef.current) {
     return null;
+  }
+
+  if (status === 'authenticated' && inAuthFlow) {
+    return <Redirect href="/(tabs)/home" />;
+  }
+
+  if (status === 'unauthenticated' && !inAuthFlow) {
+    return <Redirect href="/(auth)/login" />;
   }
 
   if (status === 'error') {

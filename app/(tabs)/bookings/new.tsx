@@ -498,10 +498,10 @@ export default function NewBookingScreen() {
       <View style={styles.footer}>
         <Pressable
           onPress={onConfirm}
-          disabled={!selectedSlot || !selectedStationId || createMut.isPending}
+          disabled={!selectedSlot || createMut.isPending}
           style={[
             styles.confirmBtn,
-            (!selectedSlot || !selectedStationId || createMut.isPending) &&
+            (!selectedSlot || createMut.isPending) &&
             styles.confirmBtnDisabled,
           ]}
         >

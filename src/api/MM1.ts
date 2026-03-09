@@ -62,13 +62,7 @@ export async function enterQueue(body: {
     slotEnd: string;
     slotKey?: string;
 }) {
-    const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
-
-    if (!API_BASE_URL) {
-        throw new Error("api_base_url missing");
-    }
-
-    const res = await fetch(`${API_BASE_URL}/enterQueue`, {
+    const res = await fetch(endPoints.enterQueue, {
         method: "POST",
         headers: {
             "Content-Type": "application/json",

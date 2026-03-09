@@ -105,7 +105,31 @@ const toIsoString = (value) => {
     }
     return undefined;
 };
-const normalizeSlotLabel = (value) => {
+const deriveHourSlot = (hour) => `${hour}-${(hour + 1) % 24}`;
+const getHourInTimeZone = (iso, timeZone) => {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime()))
+        return undefined;
+    if (timeZone) {
+        try {
+            const parts = new Intl.DateTimeFormat('en-GB', {
+                timeZone,
+                hour: '2-digit',
+                hour12: false,
+            }).formatToParts(date);
+            const hourPart = parts.find((part) => part.type === 'hour')?.value;
+            const hour = hourPart ? Number(hourPart) : Number.NaN;
+            if (Number.isFinite(hour) && hour >= 0 && hour <= 23)
+                return hour;
+        }
+        catch {
+            // fallback below
+        }
+    }
+    const fallbackHour = date.getHours();
+    return Number.isFinite(fallbackHour) ? fallbackHour : undefined;
+};
+const normalizeSlotLabel = (value, options) => {
     if (!value)
         return undefined;
     // Timestamps / Date objects (Firestore may store slot as a Timestamp or Date).
@@ -113,10 +137,8 @@ const normalizeSlotLabel = (value) => {
         const iso = toIsoString(value);
         if (!iso)
             return undefined;
-        const d = new Date(iso);
-        const start = d.getHours();
-        const end = (start + 1) % 24;
-        return `${start}-${end}`;
+        const start = getHourInTimeZone(iso, options?.timeZone);
+        return start === undefined ? undefined : deriveHourSlot(start);
     }
     // Explicit "HH-HH" or "HH:MM-HH:MM" (recommended representation).
     const raw = String(value).trim();
@@ -130,14 +152,24 @@ const normalizeSlotLabel = (value) => {
             return undefined;
         return `${start}-${end}`;
     }
+    // Explicit "HH:MM" or "H:MM" (slot key used by mobile).
+    const singleTimeMatch = raw.match(/^(\d{1,2}):(\d{2})$/);
+    if (singleTimeMatch) {
+        const start = Number(singleTimeMatch[1]);
+        const minute = Number(singleTimeMatch[2]);
+        if (!Number.isFinite(start) || !Number.isFinite(minute))
+            return undefined;
+        if (start < 0 || start > 23 || minute < 0 || minute > 59)
+            return undefined;
+        return deriveHourSlot(start);
+    }
     // Fallback: ISO/date-like string (e.g. "2026-01-15T10:00:00Z").
     const ms = toMillis(raw);
     if (ms === undefined)
         return undefined;
-    const d = new Date(ms);
-    const start = d.getHours();
-    const end = (start + 1) % 24;
-    return `${start}-${end}`;
+    const iso = new Date(ms).toISOString();
+    const start = getHourInTimeZone(iso, options?.timeZone);
+    return start === undefined ? undefined : deriveHourSlot(start);
 };
 const normalizeStationStatus = (value) => {
     const raw = String(value ?? '').toLowerCase();
@@ -454,7 +486,7 @@ const resolveBookingFacilityId = (data) => toStringValue(data.Facility_ID ??
     data.facilityId ??
     data.facility_id ??
     data.Facility);
-const resolveBookingSlotLabel = (data) => normalizeSlotLabel(data.Slot ?? data.slot ?? data.ArrivalTime ?? data.arrivalTime);
+const resolveBookingSlotLabel = (data, options) => normalizeSlotLabel(data.Slot ?? data.slot ?? data.ArrivalTime ?? data.arrivalTime, options);
 const resolveBookingCompletedAtMs = (data) => {
     const iso = toIsoString(data.ServiceEndTime ??
         data.serviceEndTime ??
@@ -472,7 +504,7 @@ const resolveBookingCompletedAtMs = (data) => {
 const buildMm1Recommendations = (input) => {
     const stationIds = input.stations.map((station) => station.id);
     const stationIdSet = new Set(stationIds);
-    const requestedSlot = normalizeSlotLabel(input.slot);
+    const requestedSlot = normalizeSlotLabel(input.slot, { timeZone: input.timeZone });
     const windowDays = 7;
     const windowHours = windowDays * 24;
     const maxTheoreticalWqMin = 10_000;
@@ -504,7 +536,7 @@ const buildMm1Recommendations = (input) => {
             if (!stationIdSet.has(stationId))
                 continue;
             if (requestedSlot) {
-                const bookingSlot = resolveBookingSlotLabel(data);
+                const bookingSlot = resolveBookingSlotLabel(data, { timeZone: input.timeZone });
                 if (!bookingSlot || bookingSlot !== requestedSlot)
                     continue;
             }
@@ -628,17 +660,20 @@ exports.getRecommendation = (0, https_1.onRequest)({ region: 'us-central1', cors
         const body = await readBody(req);
         const facilityId = toStringValue(body?.facilityId ?? req.query?.facilityId);
         const slot = toStringValue(body?.slot ?? body?.arrivalTime ?? req.query?.slot ?? req.query?.arrivalTime);
+        const clientTimeZone = toStringValue(body?.clientTimeZone ?? body?.timeZone ?? req.query?.clientTimeZone ?? req.query?.timeZone);
         const carrierLat = toNumberValue(body?.carrierLat ?? req.query?.carrierLat);
         const carrierLng = toNumberValue(body?.carrierLng ?? req.query?.carrierLng);
         if (!slot) {
             res.status(400).json({ error: 'slot is required' });
             return;
         }
-        const requestedSlot = normalizeSlotLabel(slot) ?? slot;
+        const requestedSlot = normalizeSlotLabel(slot, { timeZone: clientTimeZone }) ?? slot;
         // Logging format mirrors the slides/screenshots for easier verification.
         logger.info('==============================');
         logger.info('NEW RECOMMENDATION REQUEST');
         logger.info(`Requested slot: ${requestedSlot}`);
+        if (clientTimeZone)
+            logger.info(`Client time zone: ${clientTimeZone}`);
         logger.info('==============================');
         const stations = facilityId ? await fetchStationsByFacility(facilityId) : await fetchAllStations();
         if (!stations.length) {
@@ -651,6 +686,7 @@ exports.getRecommendation = (0, https_1.onRequest)({ region: 'us-central1', cors
             facilityId: facilityId ?? undefined,
             carrierLat: carrierLat ?? undefined,
             carrierLng: carrierLng ?? undefined,
+            timeZone: clientTimeZone ?? undefined,
         });
         if (!built.suggestedStationId) {
             res.status(404).json({ error: 'No suitable station found' });

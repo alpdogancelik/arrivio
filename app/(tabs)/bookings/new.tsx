@@ -79,13 +79,13 @@ const toFiniteNumber = (value: unknown): number | null => {
 const formatWaitText = (waitMin: number | null) => {
   if (waitMin === null) return "Bekleme hesaplanamıyor";
   if (waitMin > 0 && waitMin < 1) return "1 dk'den az tahmini bekleme";
-  return `${String(waitMin)} dk tahmini bekleme`;
+  return `${waitMin.toFixed(2)} dk tahmini bekleme`;
 };
 
 const formatWaitShortText = (waitMin: number | null) => {
   if (waitMin === null) return "Bekleme hesaplanamıyor";
   if (waitMin > 0 && waitMin < 1) return "1 dk'den az bekleme";
-  return `${String(waitMin)} dk bekleme`;
+  return `${waitMin.toFixed(2)} dk bekleme`;
 };
 
 export default function NewBookingScreen() {

@@ -292,9 +292,11 @@ export default function MapScreen() {
   }, [bookingsByStation, stations]);
 
   const pins = useMemo(() => {
-    if (facilityPins.length) return facilityPins;
-    if (stationPins.length) return stationPins;
-    return STATIC_FACILITIES;
+    const source = facilityPins.length ? facilityPins : stationPins.length ? stationPins : STATIC_FACILITIES;
+    return source.map((pin, index) => ({
+      ...pin,
+      name: `Station${index + 1}`,
+    }));
   }, [facilityPins, stationPins]);
 
   const mapRef = useRef<MapView | null>(null);
@@ -383,9 +385,10 @@ export default function MapScreen() {
           left: 16,
         }}
       >
-        {pins.map((facility) => {
+        {pins.map((facility, index) => {
           const meta = statusMeta[facility.availability];
           const isSelected = facility.id === selectedId;
+          const markerLabel = `Station${index + 1}`;
 
           return (
             <Marker
@@ -396,20 +399,25 @@ export default function MapScreen() {
               accessibilityLabel={`Facility pin: ${facility.name}`}
             >
               <View style={styles.markerWrap}>
-                <View
-                  style={[
-                    styles.markerRing,
-                    { borderColor: `${meta.color}${isSelected ? 'cc' : '55'}` },
-                    isSelected && styles.markerRingSelected,
-                  ]}
-                />
-                <View
-                  style={[
-                    styles.markerDot,
-                    { backgroundColor: meta.color },
-                    isSelected && styles.markerDotSelected,
-                  ]}
-                />
+                <View style={styles.markerLabelWrap}>
+                  <ThemedText style={styles.markerLabelText}>{markerLabel}</ThemedText>
+                </View>
+                <View style={styles.markerPin}>
+                  <View
+                    style={[
+                      styles.markerRing,
+                      { borderColor: `${meta.color}${isSelected ? 'cc' : '55'}` },
+                      isSelected && styles.markerRingSelected,
+                    ]}
+                  />
+                  <View
+                    style={[
+                      styles.markerDot,
+                      { backgroundColor: meta.color },
+                      isSelected && styles.markerDotSelected,
+                    ]}
+                  />
+                </View>
               </View>
             </Marker>
           );
@@ -571,8 +579,28 @@ const styles = StyleSheet.create({
 
   // Marker
   markerWrap: {
-    width: 28,
-    height: 28,
+    width: 92,
+    height: 54,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  markerLabelWrap: {
+    marginBottom: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#1f1f1f',
+    backgroundColor: '#0f0f0f',
+  },
+  markerLabelText: {
+    color: '#f5f5f5',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  markerPin: {
+    width: 30,
+    height: 30,
     alignItems: 'center',
     justifyContent: 'center',
   },

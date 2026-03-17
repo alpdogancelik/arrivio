@@ -33,6 +33,13 @@ const formatIssueDate = (value?: string) => {
   });
 };
 
+const formatIssueStatus = (status?: string) => {
+  const raw = String(status ?? '').toLowerCase();
+  if (raw === 'resolved') return 'SOLVED';
+  if (raw === 'in_progress') return 'IN PROGRESS';
+  return 'UNSOLVED';
+};
+
 export default function IssueScreen() {
   const { t } = useTranslation(['issue', 'common']);
 
@@ -224,7 +231,7 @@ export default function IssueScreen() {
                     </ThemedText>
                   </View>
                   <View style={styles.listRowRight}>
-                    <ThemedText style={styles.listRowStatus}>{String(issue.status ?? '').toUpperCase()}</ThemedText>
+                    <ThemedText style={styles.listRowStatus}>{formatIssueStatus(issue.status)}</ThemedText>
                     <ThemedText style={styles.listRowDate}>{formatIssueDate(issue.createdAt)}</ThemedText>
                   </View>
                 </View>

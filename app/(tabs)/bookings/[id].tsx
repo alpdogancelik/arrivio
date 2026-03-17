@@ -60,6 +60,13 @@ const formatWhen = (iso?: string) => {
 
 const formatSlot = (slot?: string) => (typeof slot === "string" && slot.trim() ? slot.trim() : null);
 
+const formatIssueStatus = (status?: string) => {
+  const raw = String(status ?? "").toLowerCase();
+  if (raw === "resolved") return "SOLVED";
+  if (raw === "in_progress") return "IN PROGRESS";
+  return "UNSOLVED";
+};
+
 export default function BookingDetailScreen() {
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const router = useRouter();
@@ -376,7 +383,7 @@ export default function BookingDetailScreen() {
                 .map((issue: any) => (
                   <View key={String(issue.id)} style={{ marginTop: 10 }}>
                     <ThemedText style={styles.stepText}>
-                      {String(issue.category ?? "Issue")} • {String(issue.status ?? "").toUpperCase()}
+                      {String(issue.category ?? "Issue")} • {formatIssueStatus(issue.status)}
                     </ThemedText>
                     <ThemedText style={[styles.stepText, { color: "#9aa0a6", marginTop: 4 }]}>
                       {String(issue.description ?? "")}

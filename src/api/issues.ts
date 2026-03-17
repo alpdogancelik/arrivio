@@ -4,6 +4,9 @@ import { createMockIssue, listMockIssues } from '@/mock/data';
 import { auth, db } from '@/services/firebase';
 import { collection, doc, getDocs, serverTimestamp, setDoc } from 'firebase/firestore';
 
+const PRIMARY_ISSUES_COLLECTION = 'issues';
+const LEGACY_ISSUES_COLLECTION = 'Issue';
+
 const ensureDb = () => {
   if (!db) {
     throw new Error('Firestore is disabled');
@@ -45,19 +48,19 @@ const normalizeIssueStatus = (value: unknown): IssueStatus => {
   if (raw === 'open' || raw === 'in_progress' || raw === 'resolved') {
     return raw as IssueStatus;
   }
-  if (raw === 'unsolved') return 'open';
-  if (raw === 'solved' || raw === 'closed') return 'resolved';
+  if (raw === 'unsolved' || raw === 'new' || raw === 'pending') return 'open';
+  if (raw === 'solved' || raw === 'closed' || raw === 'done') return 'resolved';
   return 'open';
 };
 
 const mapIssue = (id: string, data: Record<string, any>): Issue => ({
   id: toStringValue(data.Issue_ID) ?? id,
   bookingId: toStringValue(data.Booking_ID ?? data.bookingId),
-  category: toStringValue(data.Category ?? data.category) ?? 'General',
+  category: toStringValue(data.Category ?? data.Title ?? data.category ?? data.title) ?? 'General',
   description: toStringValue(data.Content ?? data.Description ?? data.description) ?? '',
   photoUrl: toStringValue(data.PhotoUrl ?? data.photoUrl),
-  status: normalizeIssueStatus(data.Status ?? data.status),
-  createdAt: toIsoString(data.Timestamp ?? data.CreatedAt ?? data.createdAt),
+  status: normalizeIssueStatus(data.Status ?? data.status ?? data.issueStatus),
+  createdAt: toIsoString(data.Timestamp ?? data.CreatedAt ?? data.createdAt ?? data.created_on),
 });
 
 export type CreateIssuePayload = {
@@ -77,15 +80,21 @@ export const createIssue = async (payload: CreateIssuePayload) => {
 
   const database = ensureDb();
   const user = ensureUser();
-  const ref = doc(collection(database, 'Issue'));
+  const ref = doc(collection(database, PRIMARY_ISSUES_COLLECTION));
   const data = {
     Issue_ID: ref.id,
     Booking_ID: payload.bookingId ?? null,
+    Title: payload.category,
+    Description: payload.description,
+    Priority: 'Medium',
+    Facility: payload.bookingId ?? null,
     Category: payload.category,
     Content: payload.description,
     PhotoUrl: payload.photoUrl ?? null,
     Carrier_ID: user.uid,
-    Status: 'Open',
+    Status: 'Unsolved',
+    CreatedAt: serverTimestamp(),
+    UpdatedAt: serverTimestamp(),
     Timestamp: serverTimestamp(),
   };
 
@@ -101,24 +110,48 @@ export const fetchIssues = async (params?: ListIssuesParams) => {
   if (USE_MOCK_DATA) return Promise.resolve(listMockIssues(params));
 
   const database = ensureDb();
-  const snapshot = await getDocs(collection(database, 'Issue'));
-  let issues = snapshot.docs.map((docSnap) => mapIssue(docSnap.id, docSnap.data() as Record<string, any>));
+  const [primarySnapshot, legacySnapshot] = await Promise.all([
+    getDocs(collection(database, PRIMARY_ISSUES_COLLECTION)),
+    getDocs(collection(database, LEGACY_ISSUES_COLLECTION)),
+  ]);
+
+  const rows = [...primarySnapshot.docs, ...legacySnapshot.docs].map((docSnap) => {
+    const raw = docSnap.data() as Record<string, any>;
+    return {
+      issue: mapIssue(docSnap.id, raw),
+      carrierId: toStringValue(
+        raw?.Carrier_ID ??
+          raw?.carrierId ??
+          raw?.CarrierId ??
+          raw?.CreatedBy ??
+          raw?.createdBy ??
+          raw?.User_ID ??
+          raw?.userId,
+      ),
+    };
+  });
+
+  const deduped = new Map<string, { issue: Issue; carrierId?: string }>();
+  for (const row of rows) {
+    if (!deduped.has(row.issue.id)) {
+      deduped.set(row.issue.id, row);
+    }
+  }
+
+  let issues = Array.from(deduped.values());
 
   const myUid = auth?.currentUser?.uid;
   if (myUid) {
-    issues = issues.filter((issue, idx) => {
-      const raw = snapshot.docs[idx]?.data?.() as Record<string, any> | undefined;
-      const carrierId = toStringValue(raw?.Carrier_ID ?? raw?.carrierId ?? raw?.CarrierId);
-      return carrierId ? carrierId === myUid : true;
-    });
+    // Carrier ekranında yalnızca giriş yapan kullanıcının oluşturduğu issue'ları göster.
+    issues = issues.filter((row) => row.carrierId === myUid);
   }
 
   if (params?.status) {
-    issues = issues.filter((issue) => issue.status === params.status);
+    issues = issues.filter((row) => row.issue.status === params.status);
   }
   if (params?.bookingId) {
-    issues = issues.filter((issue) => issue.bookingId === params.bookingId);
+    issues = issues.filter((row) => row.issue.bookingId === params.bookingId);
   }
 
-  return issues;
+  return issues.map((row) => row.issue);
 };

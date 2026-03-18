@@ -1,0 +1,17 @@
+{
+  "title": "Facility Status",
+  "subtitle": "Predictive queue intelligence and flow insights.",
+  "queueForecast": "Queue Forecast",
+  "nextHours": "Next 8 hours",
+  "valuesHint": "Values are estimated wait minutes (lower is better).",
+  "stationPerformance": "Station Performance",
+  "efficiencyScore": "Efficiency score",
+  "flowHealthIndex": "Flow health index",
+  "todayTimeline": "Today Timeline",
+  "peakWindowTitle": "Peak window",
+  "peakWindowBody": "11:30 - 14:00 expected queue above 20 min.",
+  "recoveryTitle": "Recovery",
+  "recoveryBody": "Queues drop after 15:30 with higher gate availability.",
+  "eveningFlowTitle": "Evening flow",
+  "eveningFlowBody": "Stable 12-14 min estimates until close."
+}

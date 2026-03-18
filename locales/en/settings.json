@@ -1,0 +1,14 @@
+{
+  "title": "Settings",
+  "subtitle": "Manage session and app preferences.",
+  "account": "Account",
+  "role": "Role",
+  "version": "Version",
+  "session": "Session",
+  "sessionHint": "Signing out will return you to the login screen.",
+  "signOutFailed": "Sign out failed",
+  "language": "Language",
+  "languageHint": "Switch the app language between English and Turkish.",
+  "languageEnglish": "English",
+  "languageTurkish": "Turkish"
+}

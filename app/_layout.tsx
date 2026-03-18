@@ -1,0 +1,252 @@
+import { Ionicons, MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
+import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import * as SplashScreen from 'expo-splash-screen';
+import { useFonts } from 'expo-font';
+import { Redirect, Stack, usePathname } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import React, { useEffect, useRef, useState } from 'react';
+import { Platform, StyleSheet, View } from 'react-native';
+import 'react-native-reanimated';
+import { useTranslation } from 'react-i18next';
+
+import { AuthProvider, useAuth } from '@/components/auth-context';
+import { ThemedText } from '@/components/themed-text';
+import { appConfig } from '@/config';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import i18n from '@/i18n';
+import { loadLanguage } from '@/storage/language-store';
+
+export const unstable_settings = {
+  anchor: '(tabs)',
+};
+
+const AUTH_DISABLED = appConfig.authDisabled;
+const PRIMARY_FONT = 'ChairoSans';
+
+// On web, `expo-font` uses `fontfaceobserver` with a hard-coded 6000ms timeout.
+// When running through an Expo tunnel (exp.direct), assets/fonts may take longer to load,
+// which can cause repeated red-screen reload loops. We patch the observer to wait longer.
+const WEB_FONTFACEOBSERVER_TIMEOUT_MS = 6 * 60 * 1000; // 6 minutes
+const AUTH_PATHS = new Set([
+  '/login',
+  '/register',
+  '/forgot-password',
+  '/(auth)/login',
+  '/(auth)/register',
+  '/(auth)/forgot-password',
+]);
+const HOME_PATHS = new Set(['/home', '/(tabs)/home']);
+const webFrameShadow =
+  Platform.OS === 'web'
+    ? ({ boxShadow: '0px 10px 30px rgba(0, 0, 0, 0.25)' } as const)
+    : {};
+
+const normalizePathname = (pathname: string | null | undefined) => {
+  if (!pathname) return '/';
+  if (pathname.length > 1 && pathname.endsWith('/')) {
+    return pathname.slice(0, -1);
+  }
+  return pathname;
+};
+
+const patchWebFontFaceObserverTimeout = () => {
+  if (Platform.OS !== 'web') return;
+
+  const globalAny = globalThis as unknown as { __arrivioPatchedFontTimeout?: boolean };
+  if (globalAny.__arrivioPatchedFontTimeout) return;
+  globalAny.__arrivioPatchedFontTimeout = true;
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const FontFaceObserver = require('fontfaceobserver');
+    if (!FontFaceObserver?.prototype?.load) return;
+
+    const originalLoad = FontFaceObserver.prototype.load;
+    FontFaceObserver.prototype.load = function patchedLoad(text: unknown, timeout?: unknown) {
+      const requested =
+        typeof timeout === 'number' && Number.isFinite(timeout) ? timeout : 0;
+      return originalLoad.call(
+        this,
+        text,
+        Math.max(requested, WEB_FONTFACEOBSERVER_TIMEOUT_MS),
+      );
+    };
+  } catch (err) {
+    // If patching fails, we keep the default behavior (still better than crashing the app here).
+    console.warn('Failed to patch fontfaceobserver timeout', err);
+  }
+};
+
+if (Platform.OS !== 'web') {
+  SplashScreen.preventAutoHideAsync().catch(() => undefined);
+}
+patchWebFontFaceObserverTimeout();
+
+function AuthGate() {
+  const { status, error } = useAuth();
+  const pathname = normalizePathname(usePathname());
+  const { t } = useTranslation(['common']);
+  const inAuthFlow = AUTH_PATHS.has(pathname);
+  const inHomeFlow = HOME_PATHS.has(pathname);
+  const splashReleasedRef = useRef(false);
+
+  useEffect(() => {
+    if (splashReleasedRef.current) return;
+    if (AUTH_DISABLED || status !== 'checking') {
+      splashReleasedRef.current = true;
+      if (Platform.OS !== 'web') {
+        SplashScreen.hideAsync().catch(() => undefined);
+      }
+    }
+  }, [status]);
+
+  if (AUTH_DISABLED) {
+    if (inAuthFlow && !inHomeFlow) {
+      return <Redirect href="/(tabs)/home" />;
+    }
+
+    return (
+      <Stack>
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="modal" options={{ presentation: 'modal', title: t('common:appName') }} />
+      </Stack>
+    );
+  }
+
+  if (status === 'checking' && !splashReleasedRef.current) {
+    return (
+      <View style={styles.bootScreen}>
+        <ThemedText type="defaultSemiBold" style={styles.bootText}>
+          {t('common:appName')}
+        </ThemedText>
+      </View>
+    );
+  }
+
+  if (status === 'authenticated' && inAuthFlow) {
+    return <Redirect href="/(tabs)/home" />;
+  }
+
+  if (status === 'unauthenticated' && !inAuthFlow) {
+    return <Redirect href="/(auth)/login" />;
+  }
+
+  if (status === 'error') {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <ThemedText type="title">{t('common:sessionStartFailed')}</ThemedText>
+        {error ? <ThemedText style={{ marginTop: 8, textAlign: 'center' }}>{error}</ThemedText> : null}
+      </View>
+    );
+  }
+
+  return (
+    <Stack>
+      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="(auth)/login" options={{ headerShown: false }} />
+      <Stack.Screen name="(auth)/register" options={{ headerShown: false }} />
+      <Stack.Screen name="(auth)/forgot-password" options={{ headerShown: false }} />
+      <Stack.Screen name="modal" options={{ presentation: 'modal', title: t('common:appName') }} />
+    </Stack>
+  );
+}
+
+export default function RootLayout() {
+  const colorScheme = useColorScheme();
+  const [fontsLoaded, fontError] = useFonts({
+    ...Ionicons.font,
+    ...MaterialIcons.font,
+    ...MaterialCommunityIcons.font,
+    [PRIMARY_FONT]: require('../assets/ChairoSansRegular-Regular.ttf'),
+  });
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 30_000,
+            retry: 1,
+            refetchOnWindowFocus: false,
+          },
+          mutations: {
+            retry: 0,
+          },
+        },
+      }),
+  );
+
+  useEffect(() => {
+    let active = true;
+    loadLanguage().then((stored) => {
+      if (!active || !stored) return;
+      if ((i18n.resolvedLanguage ?? i18n.language) === stored) return;
+      void i18n.changeLanguage(stored);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Keep the splash screen until fonts are ready. If a font fails to load (timeout/offline),
+  // we still render the app to avoid an infinite boot loop on web/tunnel.
+  if (Platform.OS !== 'web' && !fontsLoaded && !fontError) {
+    return null;
+  }
+  if (fontError) {
+    console.warn('Font loading failed, continuing without all custom fonts', fontError);
+  }
+
+  return (
+    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <View style={styles.shell}>
+            <View style={styles.frame}>
+              <AuthGate />
+            </View>
+          </View>
+        </AuthProvider>
+      </QueryClientProvider>
+      <StatusBar style="auto" />
+    </ThemeProvider>
+  );
+}
+
+const styles = StyleSheet.create({
+  shell: {
+    flex: 1,
+    ...(Platform.OS === 'web'
+      ? {
+        backgroundColor: '#0b0b0b',
+        paddingVertical: 24,
+        paddingHorizontal: 16,
+        alignItems: 'center',
+      }
+      : {}),
+  },
+  frame: {
+    flex: 1,
+    width: '100%',
+    ...(Platform.OS === 'web'
+      ? {
+        maxWidth: 460,
+        borderRadius: 24,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: '#1a2233',
+        backgroundColor: '#07080a',
+        ...webFrameShadow,
+      }
+      : {}),
+  },
+  bootScreen: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#07080a',
+  },
+  bootText: {
+    color: '#9bbcff',
+  },
+});

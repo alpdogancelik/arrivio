@@ -1,0 +1,21 @@
+{
+  "title": "Facility map",
+  "subtitle": "Tap a pin to see queue length, estimated arrival time, and actions.",
+  "open": "Open",
+  "limited": "Limited",
+  "closed": "Closed",
+  "reset": "Reset",
+  "refresh": "Refresh",
+  "trucks": "{{count}} trucks",
+  "bookSlot": "Book a slot",
+  "directions": "Directions",
+  "mobileOnlyBadge": "Mobile only",
+  "mobileOnlyHint": "Live location + queue informations are available on iOS and Android.",
+  "mobileOnlyTitle": "This screen is interactive on Android and iOS.",
+  "mobileOnlyBody": "Open the app on a mobile device to view facility pins, current queue lengths, and navigation prompts.",
+  "step1": "Run Expo and open the project in Expo Go.",
+  "step2": "Scan the QR code shown in your terminal.",
+  "step3": "Come back here - your map will be live on mobile.",
+  "tip": "Tip: Map interactions are mobile-only; keep this screen open for layout preview.",
+  "gotIt": "Got it"
+}

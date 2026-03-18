@@ -1,10 +1,8 @@
 import React, { useMemo } from "react";
 import {
-  ActivityIndicator,
   FlatList,
   Pressable,
   RefreshControl,
-  SafeAreaView,
   StatusBar,
   StyleSheet,
   View,
@@ -14,7 +12,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Image } from "expo-image";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { ScreenState } from "@/components/screen-state";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { fetchBookings } from "@/api/bookings";
@@ -22,6 +22,7 @@ import { fetchFacilities } from "@/api/facilities";
 import { fetchStations } from "@/api/stations";
 import { queryKeys } from "@/query/keys";
 import { images } from "@/constants/images";
+import { Ui } from "@/constants/theme";
 
 type BookingLike = {
   id?: string;
@@ -69,6 +70,7 @@ const formatWhen = (iso?: string) => {
 export default function BookingsIndexScreen() {
   const router = useRouter();
   const { t } = useTranslation(["booking", "common"]);
+  const insets = useSafeAreaInsets();
 
   const {
     data,

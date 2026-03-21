@@ -43,7 +43,6 @@ type State = {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const WEB_HYDRATE_TIMEOUT_MS = 8000;
 const NATIVE_HYDRATE_TIMEOUT_MS = 12000;
-const USE_BOOTSTRAP_CHECKING = Platform.OS !== 'web';
 
 const withTimeout = async <T,>(promise: Promise<T>, label: string, timeoutMs?: number): Promise<T> => {
   const ms = timeoutMs ?? (Platform.OS === 'web' ? WEB_HYDRATE_TIMEOUT_MS : NATIVE_HYDRATE_TIMEOUT_MS);
@@ -75,12 +74,7 @@ const withTimeout = async <T,>(promise: Promise<T>, label: string, timeoutMs?: n
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<State>(() => {
     if (!USE_MOCK_DATA) {
-      return {
-        user: null,
-        tokens: null,
-        status: USE_BOOTSTRAP_CHECKING ? 'checking' : 'unauthenticated',
-        error: undefined,
-      };
+      return { user: null, tokens: null, status: 'checking', error: undefined };
     }
     const session = getMockSession();
     return { user: session.user, tokens: session.tokens, status: 'authenticated', error: undefined };
@@ -137,11 +131,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [state.tokens]);
 
   const hydrate = useCallback(async () => {
-    setState((s) => ({
-      ...s,
-      status: USE_BOOTSTRAP_CHECKING ? 'checking' : s.status,
-      error: undefined,
-    }));
+    setState((s) => ({ ...s, status: 'checking', error: undefined }));
     try {
       const stored = await withTimeout(loadTokens(), 'loadTokens');
       if (!stored) {

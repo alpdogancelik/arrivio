@@ -15,6 +15,7 @@ import { clearTokens, loadTokens, saveTokens } from '@/storage/token-store';
 import { AuthTokens, User } from '@/types/api';
 import { useQueryClient } from '@tanstack/react-query';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { Platform } from 'react-native';
 
 type AuthStatus = 'idle' | 'checking' | 'authenticated' | 'unauthenticated' | 'error';
 
@@ -40,6 +41,35 @@ type State = {
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const WEB_HYDRATE_TIMEOUT_MS = 8000;
+const NATIVE_HYDRATE_TIMEOUT_MS = 12000;
+
+const withTimeout = async <T,>(promise: Promise<T>, label: string, timeoutMs?: number): Promise<T> => {
+  const ms = timeoutMs ?? (Platform.OS === 'web' ? WEB_HYDRATE_TIMEOUT_MS : NATIVE_HYDRATE_TIMEOUT_MS);
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(`${label} timed out after ${ms}ms`));
+    }, ms);
+
+    promise.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+};
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<State>(() => {
@@ -103,7 +133,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const hydrate = useCallback(async () => {
     setState((s) => ({ ...s, status: 'checking', error: undefined }));
     try {
-      const stored = await loadTokens();
+      const stored = await withTimeout(loadTokens(), 'loadTokens');
       if (!stored) {
         setState({ user: null, tokens: null, status: 'unauthenticated', error: undefined });
         return;
@@ -112,12 +142,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       tokensRef.current = stored;
       setState((s) => ({ ...s, tokens: stored }));
 
-      const activeTokens = (await refreshTokens()) ?? stored;
+      const activeTokens = (await withTimeout(refreshTokens(), 'refreshTokens')) ?? stored;
       tokensRef.current = activeTokens;
       await saveTokens(activeTokens);
 
       try {
-        const profile = await fetchMe();
+        const profile = await withTimeout(fetchMe(), 'fetchMe');
         if (profile.role && profile.role !== 'carrier') {
           await logout('Carrier role required');
           return;

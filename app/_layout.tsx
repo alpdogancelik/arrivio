@@ -114,7 +114,7 @@ function AuthGate() {
     );
   }
 
-  if (status === 'checking' && !splashReleasedRef.current) {
+  if (Platform.OS !== 'web' && status === 'checking' && !splashReleasedRef.current) {
     return (
       <View style={styles.bootScreen}>
         <ThemedText type="defaultSemiBold" style={styles.bootText}>

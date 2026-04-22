@@ -209,33 +209,41 @@ export default function PredictedScreen() {
   }, [queueEntries]);
 
   const updatedMinutesAgo = useMemo(() => {
-    if (!report?.createdAt) return 2;
+    if (!report?.createdAt) return null;
     const created = new Date(report.createdAt);
-    if (Number.isNaN(created.getTime())) return 2;
+    if (Number.isNaN(created.getTime())) return null;
     return Math.max(1, Math.round((Date.now() - created.getTime()) / 60000));
   }, [report?.createdAt]);
   const updatedLabel =
-    updatedMinutesAgo <= 1
+    updatedMinutesAgo === null
+      ? t("pulse:noLiveReport", { defaultValue: "No live report yet" })
+      : updatedMinutesAgo <= 1
       ? t("common:updatedJustNow", { defaultValue: "Updated just now" })
       : t("common:updatedMinutesAgo", { count: updatedMinutesAgo, defaultValue: `Updated ${updatedMinutesAgo} min ago` });
 
-  const avgWait = Math.max(6, Math.round(report?.averageWaitingMinutes ?? 18));
+  const avgWait =
+    typeof report?.averageWaitingMinutes === "number" && Number.isFinite(report.averageWaitingMinutes)
+      ? Math.max(1, Math.round(report.averageWaitingMinutes))
+      : null;
 
   // Queue forecast (minutes of expected wait)
   const forecast = useMemo<ForecastPoint[]>(
-    () => [
-      { label: "08:00", valueMin: Math.max(4, Math.round(avgWait * 0.6)) },
-      { label: "10:00", valueMin: Math.max(6, Math.round(avgWait * 0.9)) },
-      { label: "12:00", valueMin: Math.max(8, Math.round(avgWait * 1.4)) },
-      { label: "14:00", valueMin: Math.max(6, Math.round(avgWait * 1.2)) },
-      { label: "16:00", valueMin: Math.max(4, Math.round(avgWait * 0.8)) },
-    ],
+    () =>
+      avgWait === null
+        ? []
+        : [
+            { label: "08:00", valueMin: Math.max(4, Math.round(avgWait * 0.6)) },
+            { label: "10:00", valueMin: Math.max(6, Math.round(avgWait * 0.9)) },
+            { label: "12:00", valueMin: Math.max(8, Math.round(avgWait * 1.4)) },
+            { label: "14:00", valueMin: Math.max(6, Math.round(avgWait * 1.2)) },
+            { label: "16:00", valueMin: Math.max(4, Math.round(avgWait * 0.8)) },
+          ],
     [avgWait],
   );
 
   const reportSubtitle = report?.createdAt
     ? new Date(report.createdAt).toLocaleDateString()
-    : t("pulse:reportFallback", { defaultValue: "Latest snapshot" });
+    : t("pulse:noReportData", { defaultValue: "No report data yet." });
 
   const reportMetrics = [
     {
@@ -278,23 +286,14 @@ export default function PredictedScreen() {
     return parsed.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
   };
 
-  // KKTC station performance snapshot
   const stationsPerf = useMemo<StationPerf[]>(() => {
-    if (!stations.length) {
-      return [
-        { name: "Gazimagusa Port (Customs Gate)", score: 78, trendPct: -3, hint: "Customs checks" },
-        { name: "Lefkosa Logistics Park (Gate B)", score: 90, trendPct: 5, hint: "Fast lane stable" },
-        { name: "Girne Free Zone (Dock 1)", score: 83, trendPct: 2, hint: "Dock throughput" },
-        { name: "Guzelyurt Citrus Yard (Cold Dock)", score: 71, trendPct: -1, hint: "Cold-chain priority" },
-        { name: "Iskele Bogaz Transfer (Weighbridge)", score: 88, trendPct: 1, hint: "Scale flow steady" },
-      ];
-    }
+    if (!stations.length) return [];
 
     return stations.map((station) => {
       const queueCount = queueCountByStation.get(station.id) ?? 0;
       const score = Math.max(60, 100 - queueCount * 6);
       const trendPct = queueCount === 0 ? 2 : queueCount >= 8 ? -3 : 0;
-      const hint = station.type ?? station.status ?? undefined;
+      const hint = station.status ?? station.gate ?? undefined;
       return {
         name: station.name ?? station.id,
         score,
@@ -313,7 +312,7 @@ export default function PredictedScreen() {
         }),
         body: t("pulse:peakWindowBody", {
           defaultValue:
-            "11:30–14:00 expected to exceed 20 min at Mağusa Port gates (customs + dock overlap). Consider rescheduling arrivals or routing to Lefkoşa Gate B.",
+            "Peak period expected around mid-day. Plan for additional wait and re-check before departure.",
         }),
       },
       {
@@ -322,7 +321,7 @@ export default function PredictedScreen() {
         }),
         body: t("pulse:recoveryBody", {
           defaultValue:
-            "After 15:30, compliance improves and queue drops; weighbridge clears first, then docks normalize.",
+            "After peak hours, queue pressure is expected to ease gradually across stations.",
         }),
       },
       {
@@ -331,7 +330,7 @@ export default function PredictedScreen() {
         }),
         body: t("pulse:eveningFlowBody", {
           defaultValue:
-            "Until closing, stable 12–14 min expected for Lefkoşa/Girne lines; Mağusa remains sensitive to random inspections.",
+            "Evening flow is typically more stable, but monitor live changes for operational updates.",
         }),
       },
     ],
@@ -390,13 +389,21 @@ export default function PredictedScreen() {
           art={images.hourglass}
           artStyle={styles.artTopRight}
         >
-          <ForecastMiniChart
-            data={forecast}
-            formatValue={(value) => t("common:mins", { count: value, defaultValue: `${value} min` })}
-          />
-          <ThemedText style={styles.microHint}>
-            {t("pulse:valuesHint", { defaultValue: "Values are estimated waiting minutes (lower is better)." })}
-          </ThemedText>
+          {forecast.length ? (
+            <>
+              <ForecastMiniChart
+                data={forecast}
+                formatValue={(value) => t("common:mins", { count: value, defaultValue: `${value} min` })}
+              />
+              <ThemedText style={styles.microHint}>
+                {t("pulse:valuesHint", { defaultValue: "Values are estimated waiting minutes (lower is better)." })}
+              </ThemedText>
+            </>
+          ) : (
+            <ThemedText style={styles.emptyStateText}>
+              {t("pulse:noForecastData", { defaultValue: "No forecast data yet." })}
+            </ThemedText>
+          )}
         </Card>
 
         {/* Station perf */}
@@ -406,15 +413,21 @@ export default function PredictedScreen() {
           art={images.pieChart}
           artStyle={styles.artBottomRight}
         >
-          <View style={styles.list}>
-            {stationsPerf.map((s) => (
-              <StationRow
-                key={s.name}
-                item={s}
-                metaLabel={t("pulse:flowHealthIndex", { defaultValue: "Flow health index" })}
-              />
-            ))}
-          </View>
+          {stationsPerf.length ? (
+            <View style={styles.list}>
+              {stationsPerf.map((s) => (
+                <StationRow
+                  key={s.name}
+                  item={s}
+                  metaLabel={t("pulse:flowHealthIndex", { defaultValue: "Flow health index" })}
+                />
+              ))}
+            </View>
+          ) : (
+            <ThemedText style={styles.emptyStateText}>
+              {t("pulse:noStationData", { defaultValue: "No station data yet." })}
+            </ThemedText>
+          )}
         </Card>
 
         <Card
@@ -453,7 +466,13 @@ export default function PredictedScreen() {
 
         {/* Timeline */}
         <Card title={t("pulse:todayTimeline", { defaultValue: "Today's timeline" })} art={images.clock} artStyle={styles.artTopRight}>
-          <TimelineBlock items={timeline} />
+          {forecast.length ? (
+            <TimelineBlock items={timeline} />
+          ) : (
+            <ThemedText style={styles.emptyStateText}>
+              {t("pulse:noTimelineData", { defaultValue: "No timeline data yet." })}
+            </ThemedText>
+          )}
         </Card>
       </ScrollView>
     </SafeAreaView>
@@ -550,6 +569,7 @@ const styles = StyleSheet.create({
   chartValue: { color: UI.text, fontSize: 11, fontWeight: "800", marginTop: 4 },
 
   microHint: { color: "#6b6b6b", fontSize: 12, marginTop: 10 },
+  emptyStateText: { color: UI.muted, fontSize: 12 },
 
   list: { marginTop: 2 },
   stationRow: {
@@ -589,3 +609,5 @@ const styles = StyleSheet.create({
   timelineTitle: { color: UI.text, fontWeight: "800", marginLeft: 12 },
   timelineBody: { color: UI.muted, fontSize: 12, marginTop: 3, marginLeft: 12, lineHeight: 16 },
 });
+
+

@@ -62,6 +62,20 @@ const formatWhen = (iso?: string) => {
 
 const formatSlot = (slot?: string) => (typeof slot === "string" && slot.trim() ? slot.trim() : null);
 
+const formatBookingId = (id?: string) => {
+  const raw = String(id ?? "").trim();
+  if (!raw) return "----";
+
+  const digits = raw.replace(/\D/g, "");
+  if (digits) {
+    return digits.slice(-4).padStart(4, "0");
+  }
+
+  const clean = raw.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+  if (!clean) return "----";
+  return clean.slice(-6);
+};
+
 const formatIssueStatus = (status?: string) => {
   const raw = String(status ?? "").toLowerCase();
   if (raw === "resolved") return "SOLVED";
@@ -153,7 +167,7 @@ export default function BookingDetailScreen() {
 
   const resolvedFacilityId = booking?.facilityId;
   const badge = tone(booking?.status);
-  const bookingShortId = String(booking?.id ?? bookingId).slice(-6).toUpperCase();
+  const bookingShortId = formatBookingId(String(booking?.id ?? bookingId));
   const arrivalOrSlot = String(booking?.arrivalTime ?? booking?.slot ?? "");
   const bookingStatus = String(booking?.status ?? "").toLowerCase();
   const canManageBooking = bookingStatus !== "cancelled" && bookingStatus !== "completed";

@@ -53,27 +53,23 @@ const resolveFacilityId = (data: Record<string, any>) =>
 const resolveStationName = (data: Record<string, any>, stationId: string) => {
   const direct = toStringValue(data.Name ?? data.Station_Name ?? data.stationName ?? data.name);
   if (direct) return direct;
-  const type = toStringValue(data.Type ?? data.type);
-  if (stationId && type) return `${stationId} - ${type}`;
   return stationId;
 };
 
 const mapStation = (id: string, data: Record<string, any>): Station => {
   const stationId = resolveStationId(id, data);
   const facilityId = resolveFacilityId(data);
-  const type = toStringValue(data.Type ?? data.type);
   return {
     id: stationId,
     facilityId: facilityId ?? 'unknown',
     name: resolveStationName(data, stationId),
-    gate: toStringValue(data.Gate ?? data.gate ?? type),
+    gate: toStringValue(data.Gate ?? data.gate),
     servers: toNumberValue(data.Servers ?? data.servers ?? data.ServerCount ?? data.serverCount ?? data.c),
     latitude: toNumberValue(data.Latitude ?? data.latitude ?? data.lat),
     longitude: toNumberValue(data.Longitude ?? data.longitude ?? data.lng),
     status: normalizeStatus(data.Status ?? data.status),
     contactName: toStringValue(data.ContactName ?? data.contactName),
     phone: toStringValue(data.Phone ?? data.phone),
-    type,
     avgServiceTimeMin: toNumberValue(data.avgServiceTimeMin ?? data.AvgServiceTimeMin),
     totalServiceTimeMin: toNumberValue(data.totalServiceTimeMin ?? data.TotalServiceTimeMin),
     completedJobsCount: toNumberValue(data.completedJobsCount ?? data.CompletedJobsCount),
@@ -89,7 +85,6 @@ const mapMockStation = (item: any): Station => ({
   status: undefined,
   latitude: undefined,
   longitude: undefined,
-  type: item.kind,
 });
 
 export const fetchStations = async (facilityId?: string) => {

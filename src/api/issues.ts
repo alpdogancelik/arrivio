@@ -6,8 +6,8 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { collection, doc, getDocs, serverTimestamp, setDoc } from 'firebase/firestore';
 import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage';
 
-const PRIMARY_ISSUES_COLLECTION = 'issues';
-const LEGACY_ISSUES_COLLECTION = 'Issue';
+const PRIMARY_ISSUES_COLLECTION = 'Issue';
+const LEGACY_ISSUES_COLLECTION = 'issues';
 
 const ensureDb = () => {
   if (!db) {
@@ -159,6 +159,15 @@ const uploadIssuePhoto = async (
   return getDownloadURL(objectRef);
 };
 
+const isPermissionError = (error: unknown) => {
+  const message = String((error as any)?.message ?? '').toLowerCase();
+  return (
+    message.includes('permission') ||
+    message.includes('insufficient permissions') ||
+    message.includes('missing or insufficient')
+  );
+};
+
 export const createIssue = async (payload: CreateIssuePayload) => {
   if (USE_MOCK_DATA) {
     return Promise.resolve(
@@ -171,44 +180,75 @@ export const createIssue = async (payload: CreateIssuePayload) => {
 
   const database = ensureDb();
   const user = await ensureUser();
-  const ref = doc(collection(database, PRIMARY_ISSUES_COLLECTION));
-  const resolvedPhotoUrl =
-    payload.photoUrl ?? (payload.photo ? await uploadIssuePhoto(payload.photo, user.uid) : null);
-  const data = {
-    Issue_ID: ref.id,
-    Booking_ID: payload.bookingId ?? null,
-    Title: payload.category,
-    Description: payload.description,
-    Priority: 'Medium',
-    Facility: payload.bookingId ?? null,
-    Category: payload.category,
-    Content: payload.description,
-    PhotoUrl: resolvedPhotoUrl ?? null,
-    Carrier_ID: user.uid,
-    Status: 'Unsolved',
-    CreatedAt: serverTimestamp(),
-    UpdatedAt: serverTimestamp(),
-    Timestamp: serverTimestamp(),
+  let resolvedPhotoUrl = payload.photoUrl ?? null;
+  if (!resolvedPhotoUrl && payload.photo) {
+    try {
+      resolvedPhotoUrl = await uploadIssuePhoto(payload.photo, user.uid);
+    } catch {
+      // Do not block issue creation when image upload fails.
+      resolvedPhotoUrl = null;
+    }
+  }
+
+  const writeToCollection = async (collectionName: string) => {
+    const ref = doc(collection(database, collectionName));
+    const data = {
+      Issue_ID: ref.id,
+      Booking_ID: payload.bookingId ?? null,
+      Title: payload.category,
+      Description: payload.description,
+      Priority: 'Medium',
+      Facility: payload.bookingId ?? null,
+      Category: payload.category,
+      Content: payload.description,
+      PhotoUrl: resolvedPhotoUrl,
+      Carrier_ID: user.uid,
+      carrierId: user.uid,
+      Status: 'Unsolved',
+      CreatedAt: serverTimestamp(),
+      UpdatedAt: serverTimestamp(),
+      Timestamp: serverTimestamp(),
+    };
+
+    await setDoc(ref, data);
+
+    return mapIssue(ref.id, {
+      ...data,
+      Timestamp: new Date().toISOString(),
+    });
   };
 
-  await setDoc(ref, data);
-
-  return mapIssue(ref.id, {
-    ...data,
-    Timestamp: new Date().toISOString(),
-  });
+  try {
+    return await writeToCollection(PRIMARY_ISSUES_COLLECTION);
+  } catch (error) {
+    if (isPermissionError(error)) {
+      return writeToCollection(LEGACY_ISSUES_COLLECTION);
+    }
+    throw error;
+  }
 };
 
 export const fetchIssues = async (params?: ListIssuesParams) => {
   if (USE_MOCK_DATA) return Promise.resolve(listMockIssues(params));
 
   const database = ensureDb();
+  const readCollectionSafely = async (name: string) => {
+    try {
+      return await getDocs(collection(database, name));
+    } catch (error) {
+      if (isPermissionError(error)) {
+        return null;
+      }
+      throw error;
+    }
+  };
+
   const [primarySnapshot, legacySnapshot] = await Promise.all([
-    getDocs(collection(database, PRIMARY_ISSUES_COLLECTION)),
-    getDocs(collection(database, LEGACY_ISSUES_COLLECTION)),
+    readCollectionSafely(PRIMARY_ISSUES_COLLECTION),
+    readCollectionSafely(LEGACY_ISSUES_COLLECTION),
   ]);
 
-  const rows = [...primarySnapshot.docs, ...legacySnapshot.docs].map((docSnap) => {
+  const rows = [...(primarySnapshot?.docs ?? []), ...(legacySnapshot?.docs ?? [])].map((docSnap) => {
     const raw = docSnap.data() as Record<string, any>;
     return {
       issue: mapIssue(docSnap.id, raw),

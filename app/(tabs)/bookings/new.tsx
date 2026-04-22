@@ -4,9 +4,11 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { fetchFacilities } from "@/api/facilities";
+import { fetchBookings } from "@/api/bookings";
 import { enterQueue, fetchStationsMM1ForSlotStart } from "@/api/MM1";
 import { fetchStations } from "@/api/stations";
 import { useAuth } from "@/components/auth-context";
+import { ScreenState } from "@/components/screen-state";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { images } from "@/constants/images";
@@ -107,6 +109,11 @@ export default function NewBookingScreen() {
     queryFn: fetchFacilities,
     staleTime: 60_000,
   });
+  const { data: existingBookingsRaw } = useQuery({
+    queryKey: queryKeys.bookings(),
+    queryFn: () => fetchBookings(),
+    staleTime: 15_000,
+  });
   // Tum stationlar çekiliyor
   const { data: stationsRaw } = useQuery({
     queryKey: queryKeys.stations(),
@@ -115,6 +122,20 @@ export default function NewBookingScreen() {
   });
   const stations = useMemo(() => (Array.isArray(stationsRaw) ? stationsRaw : []), [stationsRaw]);
   const facilities = useMemo(() => (Array.isArray(facilitiesRaw) ? facilitiesRaw : []), [facilitiesRaw]);
+  const activeExistingBooking = useMemo(() => {
+    const bookings = Array.isArray(existingBookingsRaw) ? existingBookingsRaw : [];
+    const active = bookings
+      .filter((booking: any) => {
+        const status = String(booking?.status ?? "").toLowerCase();
+        return status !== "cancelled" && status !== "completed";
+      })
+      .sort((a: any, b: any) => {
+        const ta = a?.arrivalTime ? new Date(a.arrivalTime).getTime() : Number.MAX_SAFE_INTEGER;
+        const tb = b?.arrivalTime ? new Date(b.arrivalTime).getTime() : Number.MAX_SAFE_INTEGER;
+        return ta - tb;
+      })[0];
+    return active ?? null;
+  }, [existingBookingsRaw]);
   // tek facility olduğu için ilkini aldım (Bu kısım incelenebilir emin değilim)
   const facility = facilities[0] ?? null;
   // id->station map'i yapıyor
@@ -223,6 +244,15 @@ export default function NewBookingScreen() {
   };
 
   const onConfirm = async () => {
+    if (activeExistingBooking) {
+      Alert.alert(
+        t("booking:activeBookingExistsTitle", { defaultValue: "Active booking already exists" }),
+        t("booking:activeBookingExistsBody", {
+          defaultValue: "You already have an active booking. Complete or cancel it before creating a new one.",
+        })
+      );
+      return;
+    }
     if (!user) {
       Alert.alert(
         t("booking:signInRequired", { defaultValue: "Sign-in required" }),
@@ -282,6 +312,54 @@ export default function NewBookingScreen() {
       );
     }
   };
+
+  if (activeExistingBooking) {
+    const bookingId = activeExistingBooking?.id ? String(activeExistingBooking.id) : "";
+    const manageHref: Href = bookingId
+      ? (ROUTES.detail(bookingId) as unknown as Href)
+      : (ROUTES.list as unknown as Href);
+    const bookingRef = bookingId ? `#${bookingId.slice(-4).toUpperCase()}` : "-";
+
+    return (
+      <SafeAreaView style={styles.container}>
+        <Stack.Screen options={{ headerShown: false }} />
+
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} style={styles.iconBtn} hitSlop={10}>
+            <Ionicons name="chevron-back" size={22} color="#fff" />
+          </Pressable>
+
+          <View style={styles.headerCenter}>
+            <ThemedText style={styles.headerTitle}>
+              {t("booking:newBookingTitle", { defaultValue: "Yeni rezervasyon" })}
+            </ThemedText>
+            <ThemedText style={styles.headerSub}>
+              {t("booking:newBookingSubtitle", {
+                defaultValue: "VarÄ±ÅŸ zamanÄ±nÄ± planla",
+              })}
+            </ThemedText>
+          </View>
+
+          <View style={{ width: 42 }} />
+        </View>
+
+        <View style={styles.blockedStateWrap}>
+          <ScreenState
+            mode="error"
+            art={images.alarm}
+            title={t("booking:activeBookingExistsTitle", { defaultValue: "Active booking already exists" })}
+            message={t("booking:activeBookingScreenBody", {
+              defaultValue: `You already have an active booking (${bookingRef}). Manage it before creating a new one.`,
+            })}
+            actionLabel={t("home:manageBookingAction", { defaultValue: "Manage booking" })}
+            onAction={() => router.replace(manageHref)}
+            style={styles.blockedStateCard}
+          />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
@@ -536,6 +614,16 @@ export default function NewBookingScreen() {
 }
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#050505" },
+  blockedStateWrap: {
+    flex: 1,
+    paddingHorizontal: 18,
+    justifyContent: "center",
+  },
+  blockedStateCard: {
+    borderRadius: 22,
+    borderColor: "#1a1a1a",
+    backgroundColor: "#0f0f0f",
+  },
 
   header: {
     flexDirection: "row",

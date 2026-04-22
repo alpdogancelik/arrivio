@@ -14,7 +14,7 @@ import { fetchStations } from '@/api/stations';
 import { auth, db } from '@/services/firebase';
 import { DEFAULT_ACTIVE_QUEUE_LOOKBACK_MINUTES, computePrediction, countActiveQueueByStation } from '@/utils/recommendation';
 import { onAuthStateChanged } from 'firebase/auth';
-import { collection, doc, getDoc, getDocs, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from 'firebase/firestore';
 
 const ensureDb = () => {
   if (!db) {
@@ -177,18 +177,26 @@ export const fetchBookings = async (params?: ListBookingsParams) => {
   if (USE_MOCK_DATA) return Promise.resolve(listMockBookings(params));
 
   const database = ensureDb();
-  const snapshot = await getDocs(collection(database, 'Booking'));
-  let bookings = snapshot.docs.map((docSnap) => mapBooking(docSnap.id, docSnap.data() as Record<string, any>));
-
-  const myUid = auth?.currentUser?.uid;
-  if (myUid) {
-    bookings = bookings.filter((booking, idx) => {
-      const raw = snapshot.docs[idx]?.data?.() as Record<string, any> | undefined;
-      const carrierId =
-        toStringValue(raw?.Carrier_ID ?? raw?.carrierId ?? raw?.CarrierId ?? raw?.carrierID) ?? undefined;
-      return carrierId ? carrierId === myUid : true;
-    });
+  const user = auth?.currentUser ?? (await waitForUser());
+  const myUid = user?.uid;
+  if (!myUid) {
+    throw new Error('You must be logged in to view bookings.');
   }
+
+  const bookingCollection = collection(database, 'Booking');
+  const carrierIdFields = ['Carrier_ID', 'carrierId', 'CarrierId', 'carrierID', 'carrier_id'] as const;
+  const snapshots = await Promise.all(
+    carrierIdFields.map((field) => getDocs(query(bookingCollection, where(field, '==', myUid)))),
+  );
+
+  const deduped = new Map<string, Booking>();
+  for (const snap of snapshots) {
+    for (const docSnap of snap.docs) {
+      deduped.set(docSnap.id, mapBooking(docSnap.id, docSnap.data() as Record<string, any>));
+    }
+  }
+
+  let bookings = Array.from(deduped.values());
 
   const status = params?.status;
   if (status && status !== 'all') {

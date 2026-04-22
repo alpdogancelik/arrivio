@@ -1,4 +1,3 @@
-// app/(tabs)/home/index.tsx
 import React, { memo, useMemo } from 'react';
 import {
   ActivityIndicator,
@@ -49,11 +48,13 @@ type PulseMetric = {
   progress: number;
 };
 
-/**
- * ✅ ROUTING (IMPORTANT)
- * expo-router route group "(tabs)" URL’nin parçası DEĞİL.
- * Typed Href’le kavga etmemek için relative path kullanıyoruz.
- */
+type DetailItem = {
+  id: string;
+  label: string;
+  value: string;
+  secondaryValue?: string;
+};
+
 const ROUTES = {
   map: '../map',
   pulse: '../pulse',
@@ -75,11 +76,31 @@ function clampPercent(n: number) {
   return Math.max(0, Math.min(100, n));
 }
 
-function formatArrival(value?: string) {
-  if (!value) return '-';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '-';
-  return d.toLocaleString(undefined, {
+function pickCopy(language: string | undefined, en: string, tr: string) {
+  return language?.toLowerCase().startsWith('tr') ? tr : en;
+}
+
+function getSortTime(value?: string) {
+  const ms = new Date(value ?? '').getTime();
+  return Number.isFinite(ms) ? ms : Number.MAX_SAFE_INTEGER;
+}
+
+function normalizeDisplayText(value?: string | null) {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const normalized = trimmed.toLowerCase();
+  if (['unknown', 'n/a', 'na', 'null', 'undefined', '-', '--'].includes(normalized)) {
+    return undefined;
+  }
+  return trimmed;
+}
+
+function formatArrival(value?: string, fallback = 'Pending confirmation') {
+  if (!value) return fallback;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return fallback;
+  return date.toLocaleString(undefined, {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
@@ -87,19 +108,94 @@ function formatArrival(value?: string) {
   });
 }
 
-function getActiveBooking(bookings: Booking[]) {
-  if (!Array.isArray(bookings) || bookings.length === 0) return null;
-  const sorted = [...bookings].sort(
-    (a, b) => new Date(a.arrivalTime).getTime() - new Date(b.arrivalTime).getTime(),
-  );
-  return sorted.find((b) => b.status !== 'cancelled') ?? null;
+function resolveQueueEstimate(params: {
+  etaMinutes?: number;
+  assignmentPending: boolean;
+  copy: (en: string, tr: string) => string;
+}) {
+  if (typeof params.etaMinutes === 'number' && Number.isFinite(params.etaMinutes)) {
+    if (params.etaMinutes <= 0) return params.copy('Now', 'Simdi');
+    return `${Math.round(params.etaMinutes)} ${params.copy('min', 'dk')}`;
+  }
+  if (params.assignmentPending) {
+    return params.copy('After gate confirmation', 'Kapi onayindan sonra');
+  }
+  return params.copy('Unavailable', 'Kullanilamiyor');
 }
 
-/**
- * Link + Pressable birleşimi:
- * - iOS/Android/Web tutarlı button görünümü
- * - Href typing kavgalarını relative route ile çözüyoruz
- */
+function formatStationGateDetails(params: {
+  stationName?: string;
+  gate?: string;
+  notAssignedLabel: string;
+  waitingLabel: string;
+  gatePrefix: string;
+}) {
+  const stationName = normalizeDisplayText(params.stationName);
+  const gate = normalizeDisplayText(params.gate);
+
+  if (gate && stationName) {
+    return { primary: `${params.gatePrefix} ${gate}`, secondary: stationName, isAssigned: true };
+  }
+  if (gate) return { primary: `${params.gatePrefix} ${gate}`, secondary: undefined, isAssigned: true };
+  if (stationName) return { primary: stationName, secondary: undefined, isAssigned: true };
+  return { primary: params.notAssignedLabel, secondary: params.waitingLabel, isAssigned: false };
+}
+
+function formatBookingReference(id: string | undefined, fallback: string) {
+  const raw = String(id ?? '').trim();
+  if (!raw) return fallback;
+
+  const digits = raw.replace(/\D/g, '');
+  if (digits) {
+    return `#${digits.slice(-4).padStart(4, '0')}`;
+  }
+
+  const clean = raw.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  if (!clean) return fallback;
+  return `#${clean.slice(-6)}`;
+}
+
+function getActiveBooking(bookings: Booking[]) {
+  if (!Array.isArray(bookings) || bookings.length === 0) return null;
+  return [...bookings]
+    .filter((booking) => booking.status !== 'cancelled' && booking.status !== 'completed')
+    .sort((a, b) => getSortTime(a.arrivalTime) - getSortTime(b.arrivalTime))[0] ?? null;
+}
+
+function getStatusMeta(
+  status: Booking['status'] | undefined,
+  t: ReturnType<typeof useTranslation>['t'],
+  copy: (en: string, tr: string) => string,
+) {
+  switch (status) {
+    case 'confirmed':
+      return {
+        label: t('home:statusConfirmed', { defaultValue: copy('Confirmed', 'Onaylandi') }),
+        tone: 'success' as const,
+      };
+    case 'arrived':
+      return {
+        label: t('home:statusArrived', { defaultValue: copy('On site', 'Tesiste') }),
+        tone: 'default' as const,
+      };
+    case 'servicing':
+      return {
+        label: t('home:statusServicing', { defaultValue: copy('In service', 'Islemde') }),
+        tone: 'default' as const,
+      };
+    case 'pending':
+      return {
+        label: t('home:statusPending', { defaultValue: copy('Pending confirmation', 'Onay bekleniyor') }),
+        tone: 'warning' as const,
+      };
+    default:
+      return {
+        label: t('home:statusScheduled', { defaultValue: copy('Scheduled', 'Planlandi') }),
+        tone: 'default' as const,
+      };
+  }
+}
+
 const LinkButton = memo(function LinkButton(props: {
   href: AppRoute;
   style: StyleProp<ViewStyle>;
@@ -126,10 +222,10 @@ const LinkButton = memo(function LinkButton(props: {
 
 const StatusPill = memo(function StatusPill(props: { label: string; tone?: StatusTone }) {
   const { label, tone = 'default' } = props;
-  const p = STATUS_PALETTE[tone];
+  const palette = STATUS_PALETTE[tone];
   return (
-    <View style={[styles.pill, { backgroundColor: p.bg }]}>
-      <ThemedText style={[styles.pillText, { color: p.fg }]}>{label}</ThemedText>
+    <View style={[styles.pill, { backgroundColor: palette.bg }]}>
+      <ThemedText style={[styles.pillText, { color: palette.fg }]}>{label}</ThemedText>
     </View>
   );
 });
@@ -144,24 +240,26 @@ const Kpi = memo(function Kpi(props: { label: string; value: string }) {
   );
 });
 
-const InfoRow = memo(function InfoRow(props: { label: string; value: string }) {
-  const { label, value } = props;
+const InfoRow = memo(function InfoRow(props: { label: string; value: string; secondaryValue?: string }) {
+  const { label, value, secondaryValue } = props;
   return (
     <View style={styles.row}>
       <ThemedText style={styles.rowLabel}>{label}</ThemedText>
-      <ThemedText type="defaultSemiBold" style={styles.rowValue}>
-        {value}
-      </ThemedText>
+      <View style={styles.rowValueWrap}>
+        <ThemedText type="defaultSemiBold" style={styles.rowValue}>
+          {value}
+        </ThemedText>
+        {secondaryValue ? <ThemedText style={styles.rowSubValue}>{secondaryValue}</ThemedText> : null}
+      </View>
     </View>
   );
 });
 
-export default function Dashboard() {
-  const { t } = useTranslation(['home', 'booking', 'common']);
+export default function HomeScreen() {
+  const { t, i18n } = useTranslation(['home', 'booking', 'common']);
   const { user } = useAuth();
+  const copy = (en: string, tr: string) => pickCopy(i18n.resolvedLanguage ?? i18n.language, en, tr);
 
-  // ✅ React Query overload fix:
-  // fetchBookings(params?) gibi signature varsa, direkt vermek yerine wrapper kullan.
   const {
     data: bookingsRaw,
     isLoading,
@@ -171,10 +269,8 @@ export default function Dashboard() {
   } = useQuery<Booking[], Error>({
     queryKey: queryKeys.bookings(),
     queryFn: async () => {
-      // params istemiyorsa sorun yok; istiyorsa undefined göndermek daha güvenli.
-      const res = await fetchBookings(undefined as any);
-      // Eğer backend farklı format döndürüyorsa burada normalize edersin.
-      return (res as any) as Booking[];
+      const response = await fetchBookings(undefined as never);
+      return response as unknown as Booking[];
     },
     staleTime: 15_000,
     retry: 1,
@@ -199,45 +295,184 @@ export default function Dashboard() {
   const stationById = useMemo(() => new Map(stations.map((station) => [station.id, station])), [stations]);
   const active = useMemo(() => getActiveBooking(bookings), [bookings]);
   const isErrored = !!error;
+  const isInitialLoading = isLoading && bookings.length === 0;
 
-  // Ops placeholders (sonra API’dan bağlarsın)
-  const GATE_UTILIZATION = 78;
-  const GATE_DELTA = '+6%';
-  const INBOUND_FLOW_VALUE = '1.3k';
-  const INBOUND_FLOW_UNIT = t('home:trucksPerDay', { defaultValue: 'trucks/day' });
-  const AVG_DWELL_DELTA = `-${t('common:mins', { count: 3 })}`;
+  const gateUtilization = 78;
+  const inboundFlowValue = '1.3k';
+  const inboundFlowUnit = t('home:trucksPerDay', { defaultValue: copy('trucks/day', 'arac/gun') });
+  const name = normalizeDisplayText(user?.name) ?? t('home:guest', { defaultValue: copy('Carrier', 'Tasiyici') });
+  const gatePrefix = t('home:gateLabelShort', { defaultValue: copy('Gate', 'Kapi') });
+  const notAssignedYetText = t('home:notAssignedYet', { defaultValue: copy('Not assigned yet', 'Henuz atanmadi') });
+  const waitingGateText = t('home:waitingGateConfirm', {
+    defaultValue: copy('Waiting for gate confirmation', 'Kapi onayi bekleniyor'),
+  });
+  const referenceUnavailableText = t('home:referenceUnavailable', {
+    defaultValue: copy('Reference unavailable', 'Referans kullanilamiyor'),
+  });
+  const estimatedArrivalLabel = t('home:estimatedArrivalLabel', {
+    defaultValue: copy('Estimated time arrival', 'Tahmini varis zamani'),
+  });
 
-  const name = user?.name ?? t('home:guest', { defaultValue: 'Carrier' });
   const activeStation = active?.stationId ? stationById.get(active.stationId) : undefined;
   const resolvedFacilityId = active?.facilityId ?? activeStation?.facilityId;
-  const facilityName =
-    active?.facilityName ??
-    facilityById.get(resolvedFacilityId ?? '')?.name ??
-    activeStation?.facilityId ??
-    t('home:facilityFallback', { defaultValue: 'Facility' });
+  const resolvedFacilityName =
+    normalizeDisplayText(active?.facilityName) ?? normalizeDisplayText(facilityById.get(resolvedFacilityId ?? '')?.name);
+  const facilityDisplay =
+    resolvedFacilityName ??
+    t('home:facilityPendingLabel', { defaultValue: copy('Facility confirmation pending', 'Tesis onayi bekleniyor') });
 
-  const queueEst = active?.etaMinutes ? `${active.etaMinutes} min` : active ? '18 min' : 'TBD';
-  const arrivalTime = active ? formatArrival(active.arrivalTime) : '—';
+  const stationGate = formatStationGateDetails({
+    stationName: active?.stationName ?? activeStation?.name,
+    gate: activeStation?.gate,
+    notAssignedLabel: notAssignedYetText,
+    waitingLabel: waitingGateText,
+    gatePrefix,
+  });
 
-  const pulse = useMemo<PulseMetric[]>(
+  const isStatusPending = active?.status === 'pending';
+  const isAssignmentPending = Boolean(active) && (isStatusPending || !stationGate.isAssigned || !resolvedFacilityName);
+  const isRouteReady = Boolean(active) && !isAssignmentPending;
+  const isActiveLoaded = Boolean(active);
+
+  const arrivalDisplay = active
+    ? formatArrival(active.arrivalTime, t('home:arrivalPendingLabel', { defaultValue: copy('Arrival awaiting confirmation', 'Varis onay bekliyor') }))
+    : t('home:arrivalPendingLabel', { defaultValue: copy('Arrival awaiting confirmation', 'Varis onay bekliyor') });
+
+  const queueEstimateDisplay = active
+    ? resolveQueueEstimate({
+        etaMinutes: active.etaMinutes,
+        assignmentPending: isAssignmentPending,
+        copy,
+      })
+    : t('home:queueEstimateAfterConfirm', {
+        defaultValue: copy('Estimate available after confirmation', 'Tahmin onaydan sonra gorunur'),
+      });
+
+  const bookingReference = formatBookingReference(active?.id, referenceUnavailableText);
+  const statusMeta = useMemo(() => getStatusMeta(active?.status, t, copy), [active?.status, copy, t]);
+
+  const heroTitle = !active
+    ? isInitialLoading
+      ? t('home:heroLoadingTitle', { defaultValue: copy('Checking next arrival', 'Sonraki varis kontrol ediliyor') })
+      : t('home:heroNoPlanTitle', { defaultValue: copy('No planned arrival', 'Planli varis yok') })
+    : isRouteReady
+      ? t('home:heroRouteReadyTitle', { defaultValue: copy('Route ready', 'Rota hazir') })
+      : isStatusPending
+        ? t('home:heroArrivalPendingTitle', { defaultValue: copy('Arrival awaiting confirmation', 'Varis onay bekliyor') })
+        : t('home:heroGatePendingTitle', { defaultValue: copy('Gate assignment pending', 'Kapi atamasi bekleniyor') });
+
+  const heroSubtitle = !active
+    ? t('home:heroNoPlanSubtitle', {
+        defaultValue: copy(
+          'Book a slot before departure to lock your next stop.',
+          'Yola cikmadan once bir slot alarak sonraki duragini netlestir.',
+        ),
+      })
+    : isRouteReady
+      ? t('home:heroReadySubtitle', {
+          defaultValue: copy(
+            'Next stop at {{facility}}. Open route and move to your assigned gate.',
+            'Sonraki durak {{facility}}. Rotayi ac ve atanan kapina ilerle.',
+          ),
+          facility: facilityDisplay,
+        })
+      : t('home:heroPendingSubtitle', {
+          defaultValue: copy(
+            'Assignment is still being confirmed. Review live status before departure.',
+            'Atama halen onaylaniyor. Yola cikmadan once canli durumu kontrol et.',
+          ),
+        });
+
+  const heroSummary = useMemo<DetailItem[]>(() => {
+    if (!active) return [];
+    return [
+      {
+        id: 'arrival',
+        label: estimatedArrivalLabel,
+        value: arrivalDisplay,
+      },
+      {
+        id: 'location',
+        label: t('home:stationGateLabel', { defaultValue: copy('Station / Gate', 'Istasyon / Kapi') }),
+        value: stationGate.primary,
+        secondaryValue: stationGate.secondary,
+      },
+      {
+        id: 'queue',
+        label: t('home:queueEstimateLabel', { defaultValue: copy('Queue estimate', 'Kuyruk tahmini') }),
+        value: queueEstimateDisplay,
+      },
+    ];
+  }, [active, arrivalDisplay, copy, estimatedArrivalLabel, queueEstimateDisplay, stationGate.primary, stationGate.secondary, t]);
+
+  const arrivalBriefRows = useMemo<DetailItem[]>(() => {
+    if (!active) return [];
+    return [
+      {
+        id: 'reference',
+        label: t('home:bookingReferenceLabel', { defaultValue: copy('Booking reference', 'Rezervasyon referansi') }),
+        value: bookingReference,
+      },
+      {
+        id: 'facility',
+        label: t('home:facility', { defaultValue: copy('Facility', 'Tesis') }),
+        value: facilityDisplay,
+      },
+      {
+        id: 'location',
+        label: t('home:stationGateLabel', { defaultValue: copy('Station / Gate', 'Istasyon / Kapi') }),
+        value: stationGate.primary,
+        secondaryValue: stationGate.secondary,
+      },
+      {
+        id: 'arrival',
+        label: estimatedArrivalLabel,
+        value: arrivalDisplay,
+      },
+      {
+        id: 'queue',
+        label: t('home:queueEstimateLabel', { defaultValue: copy('Queue estimate', 'Kuyruk tahmini') }),
+        value: queueEstimateDisplay,
+      },
+      {
+        id: 'status',
+        label: t('home:currentStatusLabel', { defaultValue: copy('Current status', 'Guncel durum') }),
+        value: statusMeta.label,
+      },
+    ];
+  }, [active, arrivalDisplay, bookingReference, copy, estimatedArrivalLabel, facilityDisplay, queueEstimateDisplay, stationGate.primary, stationGate.secondary, statusMeta.label, t]);
+
+  const pulseGuidance = gateUtilization >= 85
+    ? t('home:pulseGuidanceHigh', { defaultValue: copy('Delay risk moderate. Re-check before departure.', 'Gecikme riski orta. Cikistan once yeniden kontrol et.') })
+    : gateUtilization >= 65
+      ? t('home:pulseGuidanceStable', { defaultValue: copy('Gate load stable. Best to check before departure.', 'Kapi yogunlugu stabil. Cikistan once kontrol etmen iyi olur.') })
+      : t('home:pulseGuidanceLow', { defaultValue: copy('No major congestion detected.', 'Buyuk bir yogunluk gorulmuyor.') });
+
+  const pulseMetrics = useMemo<PulseMetric[]>(
     () => [
       {
-        id: 'gate',
-        label: t('home:gateUtilization'),
-        value: `${GATE_UTILIZATION}%`,
-        delta: GATE_DELTA,
-        progress: GATE_UTILIZATION,
+        id: 'gate-load',
+        label: t('home:pulseGateLoadLabel', { defaultValue: copy('Gate load now', 'Anlik kapi yogunlugu') }),
+        value: `${gateUtilization}%`,
+        delta: gateUtilization >= 80 ? copy('Busy now', 'Yogun') : copy('Stable', 'Stabil'),
+        progress: gateUtilization,
       },
       {
         id: 'inbound',
-        label: t('home:inboundFlow'),
-        value: INBOUND_FLOW_VALUE,
-        delta: INBOUND_FLOW_UNIT,
-        progress: 64,
+        label: t('home:pulseInboundLabel', { defaultValue: copy('Inbound arrivals', 'Yaklasan araclar') }),
+        value: inboundFlowValue,
+        delta: inboundFlowUnit,
+        progress: 62,
       },
-      { id: 'dwell', label: t('home:avgDwell'), value: queueEst, delta: AVG_DWELL_DELTA, progress: 52 },
+      {
+        id: 'eta',
+        label: estimatedArrivalLabel,
+        value: queueEstimateDisplay,
+        delta: t('home:pulseEtaDelta', { defaultValue: copy('Live update', 'Canli guncelleme') }),
+        progress: isAssignmentPending ? 38 : 58,
+      },
     ],
-    [queueEst, t, INBOUND_FLOW_UNIT, AVG_DWELL_DELTA],
+    [copy, estimatedArrivalLabel, gateUtilization, inboundFlowUnit, inboundFlowValue, isAssignmentPending, queueEstimateDisplay, t],
   );
 
   const quickLinks = useMemo<QuickLink[]>(
@@ -245,54 +480,56 @@ export default function Dashboard() {
       {
         id: 'map',
         href: ROUTES.map,
-        label: t('home:quickFacilityMap'),
-        hint: t('home:quickFacilityMapHint'),
+        label: t('home:quickMapLabel', { defaultValue: copy('Live map', 'Canli harita') }),
+        hint: t('home:quickMapHint', { defaultValue: copy('Route, gate, directions', 'Rota, kapi, yonlendirme') }),
         icon: 'map.fill',
         art: images.pin,
       },
       {
         id: 'book',
         href: ROUTES.bookingNew,
-        label: t('home:quickBookSlot'),
-        hint: t('home:quickBookSlotHint'),
+        label: t('home:quickBookLabel', { defaultValue: copy('Book slot', 'Slot al') }),
+        hint: t('home:quickBookHint', { defaultValue: copy('Plan next arrival', 'Sonraki varisi planla') }),
         icon: 'calendar',
         art: images.clock,
       },
       {
-        id: 'pulse',
-        href: ROUTES.pulse,
-        label: t('home:quickPulse'),
-        hint: t('home:quickPulseHint'),
-        icon: 'chart.bar.fill',
-        art: images.performanceGrowth,
-      },
-      {
         id: 'bookings',
         href: ROUTES.bookings,
-        label: t('home:quickBookings'),
-        hint: t('home:quickBookingsHint'),
+        label: t('home:quickBookingsLabel', { defaultValue: copy('Bookings', 'Rezervasyonlar') }),
+        hint: t('home:quickBookingsHintShort', { defaultValue: copy('Change or review slots', 'Slotlarini yonet') }),
         icon: 'list.bullet.rectangle',
         art: images.priceTag,
       },
       {
         id: 'issues',
         href: ROUTES.issues,
-        label: t('home:quickIssue'),
-        hint: t('home:quickIssueHint'),
+        label: t('home:quickIssuesLabel', { defaultValue: copy('Report issue', 'Sorun bildir') }),
+        hint: t('home:quickIssuesHint', { defaultValue: copy('Delay, access, documents', 'Gecikme, erisim, evrak') }),
         icon: 'exclamationmark.triangle',
         art: images.alarm,
       },
+    ],
+    [copy, t],
+  );
+
+  const secondaryQuickLinks = useMemo(
+    () => [
+      {
+        id: 'pulse',
+        href: ROUTES.pulse as AppRoute,
+        label: t('home:secondaryLiveStatus', { defaultValue: copy('Live status', 'Canli durum') }),
+      },
       {
         id: 'profile',
-        href: ROUTES.profile,
-        label: t('home:quickProfile'),
-        hint: t('home:quickProfileHint'),
-        icon: 'person.crop.circle',
-        art: images.key,
+        href: ROUTES.profile as AppRoute,
+        label: t('home:secondaryProfile', { defaultValue: copy('Driver profile', 'Surucu profili') }),
       },
     ],
-    [t],
+    [copy, t],
   );
+
+  const heroArt = active ? images.pin : images.clock;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -303,31 +540,51 @@ export default function Dashboard() {
           <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor="#2b8cff" />
         }
       >
-        {/* HERO */}
         <View style={styles.hero}>
           <View style={styles.heroGlowA} />
           <View style={styles.heroGlowB} />
 
           <View style={styles.heroTopRow}>
             <View style={styles.heroLeft}>
-              <ThemedText style={styles.heroTitle}>
-                {t('home:heroTitle', { name })}
-              </ThemedText>
-
-              <View style={styles.heroMetaRow}>
-                <StatusPill label={t('home:live')} tone="success" />
-                <View style={styles.facilityPill}>
-                  <ThemedText style={styles.facilityPillText} numberOfLines={1}>
-                    {facilityName}
-                  </ThemedText>
-                </View>
+              <View style={styles.heroEyebrowRow}>
+                <ThemedText style={styles.heroEyebrow}>
+                  {t('home:heroEyebrow', { defaultValue: copy('Next action', 'Siradaki aksiyon') })}
+                </ThemedText>
+                <StatusPill
+                  label={
+                    isActiveLoaded
+                      ? statusMeta.label
+                      : isInitialLoading
+                        ? t('home:heroSyncingBadge', { defaultValue: copy('Syncing', 'Esitleniyor') })
+                        : t('home:heroBookingNeededBadge', { defaultValue: copy('Booking needed', 'Rezervasyon gerekli') })
+                  }
+                  tone={isActiveLoaded ? statusMeta.tone : isInitialLoading ? 'default' : 'warning'}
+                />
               </View>
 
-              <ThemedText style={styles.heroSubtitle}>{t('home:heroSubtitle')}</ThemedText>
+              <ThemedText style={styles.heroGreeting}>
+                {t('home:heroGreeting', { defaultValue: copy('Hello, {{name}}', 'Merhaba, {{name}}'), name })}
+              </ThemedText>
+              <ThemedText style={styles.heroTitle}>{heroTitle}</ThemedText>
+              <ThemedText style={styles.heroSubtitle}>{heroSubtitle}</ThemedText>
+
+              {isActiveLoaded ? (
+                <View style={styles.heroSupportRow}>
+                  <ThemedText style={styles.heroSupportText} numberOfLines={1}>
+                    {facilityDisplay}
+                  </ThemedText>
+                  <ThemedText style={styles.heroRefText}>
+                    {t('home:heroRefLabel', {
+                      defaultValue: copy('Ref {{reference}}', 'Ref {{reference}}'),
+                      reference: bookingReference,
+                    })}
+                  </ThemedText>
+                </View>
+              ) : null}
             </View>
 
             <Image
-              source={images.performanceGrowth}
+              source={heroArt}
               style={styles.heroArt}
               contentFit="contain"
               cachePolicy="memory-disk"
@@ -335,64 +592,131 @@ export default function Dashboard() {
             />
           </View>
 
-          <View style={styles.kpiRow}>
-            <Kpi label={t('home:kpiNextQueue')} value={active ? queueEst : '-'} />
-            <Kpi label={t('home:kpiArrival')} value={active ? arrivalTime : '-'} />
-            <Kpi label={t('home:kpiGate')} value={`${GATE_UTILIZATION}%`} />
-          </View>
-
-          <View style={styles.ctaRow}>
-            {active ? (
-              <>
-                <View style={styles.ctaCol}>
-                  <LinkButton
-                    href={ROUTES.pulse}
-                    style={styles.ctaPrimary}
-                    accessibilityLabel={t('home:openPulse')}
-                  >
-                    <ThemedText style={styles.ctaPrimaryText}>{t('home:openPulse')}</ThemedText>
-                  </LinkButton>
+          {isActiveLoaded ? (
+            <View style={styles.kpiRow}>
+              {heroSummary.map((item) => (
+                <View key={item.id} style={styles.kpiCol}>
+                  <Kpi label={item.label} value={item.value} />
                 </View>
+              ))}
+            </View>
+          ) : isInitialLoading ? (
+            <View style={styles.heroLoadingRow}>
+              <ActivityIndicator color="#2b8cff" />
+              <ThemedText style={styles.heroLoadingText}>
+                {t('home:heroLoadingHint', {
+                  defaultValue: copy('Loading your next booking and queue estimate.', 'Sonraki rezervasyonun ve kuyruk tahminin yukleniyor.'),
+                })}
+              </ThemedText>
+            </View>
+          ) : null}
 
-                <View style={styles.ctaCol}>
-                  <LinkButton
-                    href={ROUTES.map}
-                    style={styles.ctaSecondary}
-                    accessibilityLabel={t('home:openMap')}
-                  >
-                    <IconSymbol name="map.fill" size={18} color="#9bbcff" />
-                    <ThemedText style={styles.ctaSecondaryText}>{t('home:openMap')}</ThemedText>
-                  </LinkButton>
+          {isActiveLoaded ? (
+            <View style={styles.heroActionStack}>
+              <LinkButton
+                href={isRouteReady ? ROUTES.map : ROUTES.pulse}
+                style={styles.heroPrimaryAction}
+                accessibilityLabel={
+                  isRouteReady
+                    ? t('home:startRouteAction', { defaultValue: copy('Start route', 'Rotayi baslat') })
+                    : t('home:viewLiveStatusAction', { defaultValue: copy('View live status', 'Canli durumu gor') })
+                }
+              >
+                <View style={styles.heroPrimaryActionInner}>
+                  <View style={styles.heroPrimaryActionIcon}>
+                    <IconSymbol name={isRouteReady ? 'map.fill' : 'chart.bar.fill'} size={18} color="#ffffff" />
+                  </View>
+                  <View style={styles.heroPrimaryActionCopy}>
+                    <ThemedText style={styles.heroPrimaryActionTitle}>
+                      {isRouteReady
+                        ? t('home:startRouteAction', { defaultValue: copy('Start route', 'Rotayi baslat') })
+                        : t('home:viewLiveStatusAction', { defaultValue: copy('View live status', 'Canli durumu gor') })}
+                    </ThemedText>
+                    <ThemedText style={styles.heroPrimaryActionHint}>
+                      {isRouteReady
+                        ? t('home:startRouteHint', {
+                            defaultValue: copy(
+                              'Open route and proceed to your assigned gate.',
+                              'Rotayi acip atanan kapina ilerle.',
+                            ),
+                          })
+                        : t('home:pendingPrimaryHint', {
+                            defaultValue: copy(
+                              'Follow live updates before committing to departure.',
+                              'Yola cikmadan once canli guncellemeleri takip et.',
+                            ),
+                          })}
+                    </ThemedText>
+                  </View>
                 </View>
-              </>
-            ) : (
-              <>
-                <View style={styles.ctaCol}>
-                  <LinkButton
-                    href={ROUTES.bookingNew}
-                    style={styles.ctaPrimary}
-                    accessibilityLabel={t('home:bookSlot')}
-                  >
-                    <ThemedText style={styles.ctaPrimaryText}>{t('home:bookSlot')}</ThemedText>
-                  </LinkButton>
-                </View>
+              </LinkButton>
 
-                <View style={styles.ctaCol}>
+              <View style={styles.heroSecondaryRow}>
+                <View style={styles.heroSecondaryCol}>
                   <LinkButton
                     href={ROUTES.bookings}
                     style={styles.ctaSecondary}
-                    accessibilityLabel={t('home:myBookings')}
+                    accessibilityLabel={t('home:viewLiveStatusAction', {
+                      defaultValue: copy('Manage booking', 'Rezervasyonu yonet'),
+                    })}
                   >
                     <IconSymbol name="list.bullet.rectangle" size={18} color="#9bbcff" />
-                    <ThemedText style={styles.ctaSecondaryText}>{t('home:myBookings')}</ThemedText>
+                    <ThemedText style={styles.ctaSecondaryText}>
+                      {t('home:manageBookingAction', { defaultValue: copy('Manage booking', 'Rezervasyonu yonet') })}
+                    </ThemedText>
                   </LinkButton>
                 </View>
-              </>
-            )}
-          </View>
+
+                <View style={styles.heroSecondaryCol}>
+                  <LinkButton
+                    href={isRouteReady ? ROUTES.pulse : ROUTES.map}
+                    style={styles.ctaSecondary}
+                    accessibilityLabel={t('home:manageBookingAction', {
+                      defaultValue: isRouteReady
+                        ? copy('View live status', 'Canli durumu gor')
+                        : copy('Open map', 'Haritayi ac'),
+                    })}
+                  >
+                    <IconSymbol name={isRouteReady ? 'chart.bar.fill' : 'map.fill'} size={18} color="#9bbcff" />
+                    <ThemedText style={styles.ctaSecondaryText}>
+                      {isRouteReady
+                        ? t('home:viewLiveStatusAction', { defaultValue: copy('View live status', 'Canli durumu gor') })
+                        : t('home:openMapAction', { defaultValue: copy('Open map', 'Haritayi ac') })}
+                    </ThemedText>
+                  </LinkButton>
+                </View>
+              </View>
+            </View>
+          ) : !isInitialLoading ? (
+            <View style={styles.heroSecondaryRow}>
+              <View style={styles.heroSecondaryCol}>
+                <LinkButton
+                  href={ROUTES.bookingNew}
+                  style={styles.ctaPrimary}
+                  accessibilityLabel={t('home:bookSlotAction', { defaultValue: copy('Book slot', 'Slot al') })}
+                >
+                  <ThemedText style={styles.ctaPrimaryText}>
+                    {t('home:bookSlotAction', { defaultValue: copy('Book slot', 'Slot al') })}
+                  </ThemedText>
+                </LinkButton>
+              </View>
+
+              <View style={styles.heroSecondaryCol}>
+                <LinkButton
+                  href={ROUTES.bookings}
+                  style={styles.ctaSecondary}
+                  accessibilityLabel={t('home:viewBookingsAction', { defaultValue: copy('View bookings', 'Rezervasyonlari gor') })}
+                >
+                  <IconSymbol name="list.bullet.rectangle" size={18} color="#9bbcff" />
+                  <ThemedText style={styles.ctaSecondaryText}>
+                    {t('home:viewBookingsAction', { defaultValue: copy('View bookings', 'Rezervasyonlari gor') })}
+                  </ThemedText>
+                </LinkButton>
+              </View>
+            </View>
+          ) : null}
         </View>
 
-        {/* ACTIVE / ERROR CARD */}
         <ThemedView style={styles.card}>
           <Image
             source={images.pin}
@@ -407,100 +731,137 @@ export default function Dashboard() {
               <ActivityIndicator color="#2b8cff" />
               <ThemedText style={styles.loadingText}>{t('booking:loadingBookings')}</ThemedText>
             </View>
+          ) : active ? (
+            <>
+              <View style={styles.cardHeader}>
+                <View style={styles.cardHeaderCopy}>
+                  <ThemedText type="subtitle" style={styles.cardTitle}>
+                    {t('home:arrivalBriefTitle', { defaultValue: copy('Arrival brief', 'Varis ozeti') })}
+                  </ThemedText>
+                  <ThemedText style={styles.cardSubtitle}>
+                    {t('home:arrivalBriefSubtitle', {
+                      defaultValue: copy(
+                        'Check-in summary with booking reference, assignment, and confirmation status.',
+                        'Rezervasyon referansi, atama ve onay durumunu iceren check-in ozeti.',
+                      ),
+                    })}
+                  </ThemedText>
+                </View>
+              </View>
+
+              {arrivalBriefRows.map((item, index) => (
+                <View key={item.id}>
+                  {index > 0 ? <View style={styles.divider} /> : null}
+                  <InfoRow label={item.label} value={item.value} secondaryValue={item.secondaryValue} />
+                </View>
+              ))}
+
+              {isAssignmentPending ? (
+                <ThemedText style={styles.cardHelper}>
+                  {t('home:stationPendingHelper', {
+                    defaultValue: copy(
+                      'Waiting for gate confirmation. Estimate updates after confirmation.',
+                      'Kapi onayi bekleniyor. Tahmin onaydan sonra guncellenir.',
+                    ),
+                  })}
+                </ThemedText>
+              ) : null}
+            </>
+          ) : isErrored ? (
+            <>
+              <View style={styles.cardHeader}>
+                <View style={styles.cardHeaderCopy}>
+                  <ThemedText type="subtitle" style={styles.cardTitle}>
+                    {t('home:errorStateTitle', { defaultValue: copy('Live schedule unavailable', 'Canli plan kullanilamiyor') })}
+                  </ThemedText>
+                  <ThemedText style={styles.cardSubtitle}>
+                    {t('home:errorStateSubtitle', {
+                      defaultValue: copy(
+                        'We could not refresh your bookings right now. Retry to sync your next stop.',
+                        'Rezervasyonlarin su anda yenilenemedi. Sonraki duragini esitlemek icin tekrar dene.',
+                      ),
+                    })}
+                  </ThemedText>
+                </View>
+              </View>
+
+              <View style={styles.emptyActionsRow}>
+                <View style={styles.heroSecondaryCol}>
+                  <Pressable
+                    onPress={() => refetch()}
+                    android_ripple={{ color: '#2b8cff22' }}
+                    style={({ pressed }) => [styles.ctaSecondarySmall, pressed ? styles.pressed : null]}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('common:retry', { defaultValue: copy('Retry', 'Tekrar dene') })}
+                  >
+                    <IconSymbol name="arrow.clockwise" size={18} color="#9bbcff" />
+                    <ThemedText style={styles.ctaSecondaryText}>
+                      {t('common:retry', { defaultValue: copy('Retry', 'Tekrar dene') })}
+                    </ThemedText>
+                  </Pressable>
+                </View>
+
+                <View style={styles.heroSecondaryCol}>
+                  <LinkButton
+                    href={ROUTES.bookingNew}
+                    style={styles.ctaPrimarySmall}
+                    accessibilityLabel={t('home:bookSlotAction', { defaultValue: copy('Book slot', 'Slot al') })}
+                  >
+                    <ThemedText style={styles.ctaPrimaryText}>
+                      {t('home:bookSlotAction', { defaultValue: copy('Book slot', 'Slot al') })}
+                    </ThemedText>
+                  </LinkButton>
+                </View>
+              </View>
+            </>
           ) : (
             <>
               <View style={styles.cardHeader}>
-                <ThemedText type="subtitle" style={styles.cardTitle}>
-                  {active
-                    ? t('home:upcomingBooking')
-                    : isErrored
-                      ? t('home:couldNotLoad')
-                      : t('home:noActiveBooking')}
-                </ThemedText>
-
-                {active ? (
-                  <StatusPill label={t('home:confirmed')} tone="success" />
-                ) : (
-                  <StatusPill label={t('home:actionNeeded')} tone="warning" />
-                )}
+                <View style={styles.cardHeaderCopy}>
+                  <ThemedText type="subtitle" style={styles.cardTitle}>
+                    {t('home:emptyStateTitle', { defaultValue: copy('No planned arrival', 'Planli varis yok') })}
+                  </ThemedText>
+                  <ThemedText style={styles.cardSubtitle}>
+                    {t('home:emptyStateSubtitle', {
+                      defaultValue: copy(
+                        'Book your next facility slot to keep the route moving and reduce gate delays.',
+                        'Rotani akista tutmak ve kapi gecikmelerini azaltmak icin sonraki tesis slotunu al.',
+                      ),
+                    })}
+                  </ThemedText>
+                </View>
               </View>
 
-              {active ? (
-                <>
-                  <InfoRow label={t('home:facility')} value={active.facilityName ?? facilityName} />
-                  <View style={styles.divider} />
-                  <InfoRow
-                    label={t('home:station')}
-                    value={active.stationName ?? activeStation?.name ?? active.stationId ?? '-'}
-                  />
-                  <View style={styles.divider} />
-                  <InfoRow label={t('home:arrival')} value={arrivalTime} />
-                  <View style={styles.divider} />
-                  <InfoRow label={t('home:queueEstimate')} value={queueEst} />
+              <View style={styles.emptyActionsRow}>
+                <View style={styles.heroSecondaryCol}>
+                  <LinkButton
+                    href={ROUTES.bookings}
+                    style={styles.ctaSecondarySmall}
+                    accessibilityLabel={t('home:viewBookingsAction', { defaultValue: copy('View bookings', 'Rezervasyonlari gor') })}
+                  >
+                    <IconSymbol name="list.bullet.rectangle" size={18} color="#9bbcff" />
+                    <ThemedText style={styles.ctaSecondaryText}>
+                      {t('home:viewBookingsAction', { defaultValue: copy('View bookings', 'Rezervasyonlari gor') })}
+                    </ThemedText>
+                  </LinkButton>
+                </View>
 
-                  <View style={styles.actionsRow}>
-                    <LinkButton
-                      href={ROUTES.pulse}
-                      style={styles.smallAction}
-                      accessibilityLabel={t('home:pulse')}
-                    >
-                      <ThemedText style={styles.smallActionText}>{t('home:pulse')}</ThemedText>
-                    </LinkButton>
-
-                    <LinkButton
-                      href={ROUTES.map}
-                      style={styles.smallAction}
-                      accessibilityLabel={t('home:openMap')}
-                    >
-                      <ThemedText style={styles.smallActionText}>{t('home:openMap')}</ThemedText>
-                    </LinkButton>
-
-                    <LinkButton
-                      href={ROUTES.bookings}
-                      style={styles.smallAction}
-                      accessibilityLabel={t('home:bookings')}
-                    >
-                      <ThemedText style={styles.smallActionText}>{t('home:bookings')}</ThemedText>
-                    </LinkButton>
-                  </View>
-                </>
-              ) : (
-                <>
-                  <ThemedText style={styles.emptyTitle}>
-                    {isErrored ? t('home:bookingsUnavailable') : t('home:noScheduledVisit')}
-                  </ThemedText>
-
-                  <ThemedText style={styles.emptyHint}>
-                    {isErrored ? t('home:checkConnection') : t('home:bookSlotHint')}
-                  </ThemedText>
-
-                  <View style={styles.emptyActionsRow}>
-                    <Pressable
-                      onPress={() => refetch()}
-                      android_ripple={{ color: '#2b8cff22' }}
-                      style={({ pressed }) => [styles.ctaSecondarySmall, pressed ? styles.pressed : null]}
-                      accessibilityRole="button"
-                      accessibilityLabel={t('common:retry')}
-                    >
-                      <IconSymbol name="arrow.clockwise" size={18} color="#9bbcff" />
-                      <ThemedText style={styles.ctaSecondaryText}>{t('common:retry')}</ThemedText>
-                    </Pressable>
-
-                    <LinkButton
-                      href={ROUTES.bookingNew}
-                      style={styles.ctaPrimarySmall}
-                      accessibilityLabel={t('common:bookSlot')}
-                    >
-                      <ThemedText style={styles.ctaPrimaryText}>{t('common:bookSlot')}</ThemedText>
-                    </LinkButton>
-                  </View>
-                </>
-              )}
+                <View style={styles.heroSecondaryCol}>
+                  <LinkButton
+                    href={ROUTES.bookingNew}
+                    style={styles.ctaPrimarySmall}
+                    accessibilityLabel={t('home:bookSlotAction', { defaultValue: copy('Book slot', 'Slot al') })}
+                  >
+                    <ThemedText style={styles.ctaPrimaryText}>
+                      {t('home:bookSlotAction', { defaultValue: copy('Book slot', 'Slot al') })}
+                    </ThemedText>
+                  </LinkButton>
+                </View>
+              </View>
             </>
           )}
         </ThemedView>
 
-        {/* PULSE */}
         <ThemedView style={styles.card}>
           <Image
             source={images.pieChart}
@@ -511,42 +872,53 @@ export default function Dashboard() {
           />
 
           <View style={styles.pulseHeader}>
-            <ThemedText type="subtitle" style={styles.pulseTitle}>
-              {t('home:operationsPulse')}
-            </ThemedText>
+            <View style={styles.cardHeaderCopy}>
+              <ThemedText type="subtitle" style={styles.pulseTitle}>
+                {t('home:operationsPulseTitle', { defaultValue: copy('Operational pulse', 'Operasyon nabzi') })}
+              </ThemedText>
+              <ThemedText style={styles.pulseSubtitle}>
+                {t('home:pulseDecisionSubtitle', {
+                  defaultValue: copy(
+                    'Decision support before departure and slot changes.',
+                    'Cikis ve slot degisikligi oncesi karar destegi.',
+                  ),
+                })}
+              </ThemedText>
+              <View style={styles.pulseGuidanceRow}>
+                <IconSymbol name="checkmark.seal.fill" size={16} color="#2b8cff" />
+                <ThemedText style={styles.pulseGuidanceText}>{pulseGuidance}</ThemedText>
+              </View>
+            </View>
 
             <View style={styles.pulseBadge}>
-              <ThemedText style={styles.pulseBadgeText}>{t('home:live')}</ThemedText>
+              <ThemedText style={styles.pulseBadgeText}>{t('home:live', { defaultValue: copy('LIVE', 'CANLI') })}</ThemedText>
             </View>
           </View>
 
-          <ThemedText style={styles.pulseSubtitle}>
-            {t('home:operationsPulseSubtitle')}
-          </ThemedText>
-
           <View style={styles.pulseMetrics}>
-            {pulse.map((m) => (
-              <View key={m.id} style={styles.pulseRow}>
+            {pulseMetrics.map((metric) => (
+              <View key={metric.id} style={styles.pulseRow}>
                 <View style={styles.pulseRowHeader}>
                   <ThemedText style={styles.pulseLabel} numberOfLines={1}>
-                    {m.label}
+                    {metric.label}
                   </ThemedText>
                   <View style={styles.pulseValues}>
-                    <ThemedText style={styles.pulseValue}>{m.value}</ThemedText>
-                    <ThemedText style={styles.pulseDelta}>{m.delta}</ThemedText>
+                    <ThemedText style={styles.pulseValue}>{metric.value}</ThemedText>
+                    <ThemedText style={styles.pulseDelta}>{metric.delta}</ThemedText>
                   </View>
                 </View>
 
                 <View style={styles.pulseBarTrack}>
-                  <View style={[styles.pulseBarFill, { width: `${clampPercent(m.progress)}%` }]} />
+                  <View style={[styles.pulseBarFill, { width: `${clampPercent(metric.progress)}%` }]} />
                 </View>
               </View>
             ))}
           </View>
         </ThemedView>
 
-        {/* QUICK ACCESS GRID (2 columns, stable on RN Web) */}
-        <ThemedText style={styles.sectionTitle}>{t('home:quickAccess')}</ThemedText>
+        <ThemedText style={styles.sectionTitle}>
+          {t('home:quickAccessTitle', { defaultValue: copy('Quick tools', 'Hizli araclar') })}
+        </ThemedText>
 
         <View style={styles.gridRow}>
           {quickLinks.map((item) => (
@@ -570,12 +942,11 @@ export default function Dashboard() {
                     <IconSymbol name={item.icon} size={20} color="#2b8cff" />
                   </View>
 
-                  {/* minWidth:0 => flex içinde text overflow/ellipsis düzgün çalışır */}
                   <View style={styles.tileTextWrap}>
                     <ThemedText style={styles.tileTitle} numberOfLines={1}>
                       {item.label}
                     </ThemedText>
-                    <ThemedText style={styles.tileHint} numberOfLines={1}>
+                    <ThemedText style={styles.tileHint} numberOfLines={2}>
                       {item.hint}
                     </ThemedText>
                   </View>
@@ -585,7 +956,21 @@ export default function Dashboard() {
           ))}
         </View>
 
-        {/* FOOTER */}
+        <View style={styles.secondaryToolsRow}>
+          {secondaryQuickLinks.map((item) => (
+            <Link key={item.id} href={item.href} asChild>
+              <Pressable
+                android_ripple={{ color: '#2b8cff22' }}
+                style={({ pressed }) => [styles.secondaryToolChip, pressed ? styles.pressed : null]}
+                accessibilityRole="button"
+                accessibilityLabel={item.label}
+              >
+                <ThemedText style={styles.secondaryToolText}>{item.label}</ThemedText>
+              </Pressable>
+            </Link>
+          ))}
+        </View>
+
         <View style={styles.footerContainer}>
           <ThemedText style={styles.footer}>
             {t('common:lastUpdated', { time: t('common:mins', { count: 5 }) })}
@@ -601,17 +986,14 @@ export default function Dashboard() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#07080a' },
-
-  // ✅ Web’de mobil gibi dursun: içerik maxWidth ile toparlanır
   content: {
     paddingHorizontal: 18,
     paddingTop: 18,
-    paddingBottom: 28,
+    paddingBottom: 56,
     width: '100%',
     maxWidth: 520,
     alignSelf: 'center',
   },
-
   pressed: { transform: [{ scale: 0.99 }], opacity: 0.96 },
 
   hero: {
@@ -641,66 +1023,92 @@ const styles = StyleSheet.create({
     bottom: -120,
     left: -90,
   },
-
   heroTopRow: { flexDirection: 'row', alignItems: 'flex-start' },
   heroLeft: { flex: 1, minWidth: 0 },
-  heroTitle: { color: '#fff', fontSize: 26, fontWeight: '900' },
-  heroSubtitle: { color: '#9aa0a6', fontSize: 13, marginTop: 8, maxWidth: '92%' },
-  heroMetaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
-  facilityPill: {
-    marginLeft: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: '#0a1426',
-    borderWidth: 1,
-    borderColor: '#22324f',
-    maxWidth: 220,
+  heroEyebrowRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
   },
-  facilityPillText: { color: '#9bbcff', fontSize: 12, fontWeight: '800' },
-  heroArt: { width: 120, height: 120, opacity: 0.9, marginLeft: 12, marginTop: -6 },
-
-  kpiRow: { flexDirection: 'row', marginTop: 14 },
+  heroEyebrow: {
+    color: '#8faed8',
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  heroGreeting: { color: '#9aa0a6', fontSize: 13, marginBottom: 6 },
+  heroTitle: { color: '#fff', fontSize: 27, fontWeight: '900', lineHeight: 32 },
+  heroSubtitle: { color: '#9aa0a6', fontSize: 13, marginTop: 8, maxWidth: '94%', lineHeight: 19 },
+  heroSupportRow: { marginTop: 10 },
+  heroSupportText: { color: '#9bbcff', fontSize: 12, fontWeight: '800' },
+  heroRefText: { color: '#87a9db', fontSize: 12, marginTop: 4 },
+  heroArt: { width: 116, height: 116, opacity: 0.88, marginLeft: 12, marginTop: -6 },
+  kpiRow: { flexDirection: 'row', marginTop: 16, marginHorizontal: -5 },
+  kpiCol: { flex: 1, paddingHorizontal: 5 },
   kpi: {
-    flex: 1,
-    paddingVertical: 10,
+    minHeight: 78,
+    paddingVertical: 12,
     paddingHorizontal: 12,
-    borderRadius: 14,
+    borderRadius: 16,
     backgroundColor: '#070b12',
     borderWidth: 1,
     borderColor: '#152038',
   },
   kpiLabel: {
-    color: '#8a8a8a',
+    color: '#7d8696',
     fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 0.6,
+    letterSpacing: 0.4,
     textTransform: 'uppercase',
   },
-  kpiValue: { color: '#fff', fontSize: 14, fontWeight: '900', marginTop: 6 },
-
-  // KPI spacing without gap
-  // We'll space with margins on the middle items
-  // (RN Web + gap bazen tutarsız)
-  // So: 1st no margin, middle marginHorizontal, last no margin
-  // We'll apply via wrapper by using separate views? Instead keep simple: apply in render? Not needed; ok look is fine even without.
-  // If you want perfect spacing: wrap each KPI in a <View style={{flex:1, marginRight:10}} />
-
-  ctaRow: { flexDirection: 'row', marginTop: 12 },
-  ctaCol: { flex: 1 },
+  kpiValue: { color: '#fff', fontSize: 14, fontWeight: '900', marginTop: 8, lineHeight: 18 },
+  heroLoadingRow: {
+    marginTop: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#152038',
+    backgroundColor: '#070b12',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  heroLoadingText: { color: '#c9d0db', fontSize: 13, marginLeft: 10, flex: 1 },
+  heroActionStack: { marginTop: 14 },
+  heroPrimaryAction: {
+    borderRadius: 16,
+    backgroundColor: '#2b8cff',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  heroPrimaryActionInner: { flexDirection: 'row', alignItems: 'center' },
+  heroPrimaryActionIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: '#1a6dd2',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  heroPrimaryActionCopy: { flex: 1 },
+  heroPrimaryActionTitle: { color: '#fff', fontWeight: '900', fontSize: 15 },
+  heroPrimaryActionHint: { color: '#dbe8ff', fontSize: 12, marginTop: 4, lineHeight: 17 },
+  heroSecondaryRow: { flexDirection: 'row', marginTop: 10, marginHorizontal: -5 },
+  heroSecondaryCol: { flex: 1, paddingHorizontal: 5 },
   ctaPrimary: {
-    minHeight: 44,
+    minHeight: 46,
     borderRadius: 14,
     backgroundColor: '#2b8cff',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 12,
-    marginRight: 10,
   },
   ctaPrimaryText: { color: '#fff', fontWeight: '900', fontSize: 14 },
-
   ctaSecondary: {
-    minHeight: 44,
+    minHeight: 46,
     borderRadius: 14,
     backgroundColor: '#070b12',
     borderWidth: 1,
@@ -710,7 +1118,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: 12,
   },
-  ctaSecondaryText: { color: '#9bbcff', fontWeight: '900', fontSize: 13, marginLeft: 8 },
+  ctaSecondaryText: { color: '#9bbcff', fontWeight: '900', fontSize: 13, marginLeft: 8, flexShrink: 1 },
 
   card: {
     padding: 18,
@@ -722,46 +1130,29 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   cardGhostArt: { position: 'absolute', right: -10, top: -8, width: 150, height: 150, opacity: 0.08 },
-
   loadingBox: { alignItems: 'center', paddingVertical: 12 },
   loadingText: { color: '#cfcfcf', marginTop: 8 },
-
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
+  cardHeaderCopy: { flex: 1, paddingRight: 12 },
   cardTitle: { color: '#fff' },
-
-  row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8 },
-  rowLabel: { color: '#8a8a8a', fontSize: 13 },
-  rowValue: { color: '#fff', fontWeight: '800' },
-  divider: { height: 1, backgroundColor: '#10182a', marginVertical: 2 },
-
-  actionsRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 14 },
-  smallAction: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    backgroundColor: '#070b12',
-    borderWidth: 1,
-    borderColor: '#1a2233',
-    marginRight: 10,
-    marginBottom: 10,
-  },
-  smallActionText: { color: '#9bbcff', fontWeight: '900', fontSize: 13 },
-
-  emptyTitle: { color: '#fff', fontSize: 15, fontWeight: '900', marginTop: 4 },
-  emptyHint: { color: '#9aa0a6', fontSize: 13, marginTop: 6, lineHeight: 18 },
-
-  emptyActionsRow: { flexDirection: 'row', marginTop: 12 },
+  cardSubtitle: { color: '#9aa0a6', fontSize: 13, marginTop: 6, lineHeight: 18 },
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingVertical: 10 },
+  rowLabel: { color: '#8a8a8a', fontSize: 13, paddingRight: 12, flex: 0.9 },
+  rowValueWrap: { flex: 1.1, alignItems: 'flex-end' },
+  rowValue: { color: '#fff', fontWeight: '800', textAlign: 'right' },
+  rowSubValue: { color: '#9aa0a6', fontSize: 12, marginTop: 2, textAlign: 'right' },
+  divider: { height: 1, backgroundColor: '#10182a' },
+  cardHelper: { color: '#8faed8', fontSize: 12, marginTop: 12, lineHeight: 18 },
+  emptyActionsRow: { flexDirection: 'row', marginHorizontal: -5, marginTop: 4 },
   ctaPrimarySmall: {
-    flex: 1,
     minHeight: 44,
     borderRadius: 14,
     backgroundColor: '#2b8cff',
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 10,
+    paddingHorizontal: 12,
   },
   ctaSecondarySmall: {
-    flex: 1,
     minHeight: 44,
     borderRadius: 14,
     backgroundColor: '#070b12',
@@ -773,9 +1164,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
 
-  // Pulse card
-  pulseGhostArt: { position: 'absolute', right: -20, top: 10, width: 150, height: 150, opacity: 0.10 },
-  pulseHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  pulseGhostArt: { position: 'absolute', right: -20, top: 10, width: 150, height: 150, opacity: 0.1 },
+  pulseHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
   pulseTitle: { color: '#fff' },
   pulseBadge: {
     backgroundColor: '#0a1426',
@@ -786,26 +1176,24 @@ const styles = StyleSheet.create({
     borderColor: '#2b8cff40',
   },
   pulseBadgeText: { color: '#9bbcff', fontSize: 10, fontWeight: '900', letterSpacing: 1 },
-  pulseSubtitle: { color: '#9aa0a6', marginTop: 6, marginBottom: 12, maxWidth: '86%' },
-
+  pulseSubtitle: { color: '#9aa0a6', marginTop: 6, maxWidth: '92%', lineHeight: 18 },
+  pulseGuidanceRow: { marginTop: 10, flexDirection: 'row', alignItems: 'center' },
+  pulseGuidanceText: { color: '#b8cff2', fontSize: 12, marginLeft: 8, flex: 1, lineHeight: 17 },
   pulseMetrics: {},
   pulseRow: { marginBottom: 12 },
   pulseRowHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  pulseLabel: { color: '#cfcfcf', fontSize: 13, fontWeight: '700', maxWidth: '60%' },
-  pulseValues: { flexDirection: 'row', alignItems: 'baseline' },
+  pulseLabel: { color: '#cfcfcf', fontSize: 13, fontWeight: '700', maxWidth: '48%', paddingRight: 10 },
+  pulseValues: { flexDirection: 'row', alignItems: 'baseline', flexShrink: 1 },
   pulseValue: { color: '#fff', fontWeight: '900' },
   pulseDelta: { color: '#2b8cff', fontSize: 12, fontWeight: '800', marginLeft: 8 },
   pulseBarTrack: { height: 6, backgroundColor: '#0a0d14', borderRadius: 999, overflow: 'hidden', marginTop: 6 },
   pulseBarFill: { height: '100%', backgroundColor: '#2b8cff', borderRadius: 999 },
 
-  sectionTitle: { color: '#cfcfcf', fontWeight: '900', marginTop: 2, marginBottom: 10, fontSize: 15 },
-
-  // ✅ Grid: wrapper padding approach => RN Web’de “gap” sorun çıkarmasın
+  sectionTitle: { color: '#cfcfcf', fontWeight: '900', marginTop: 4, marginBottom: 10, fontSize: 14 },
   gridRow: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -6 },
   gridCol: { width: '50%', paddingHorizontal: 6, paddingBottom: 12 },
-
   tile: {
-    minHeight: 96,
+    minHeight: 94,
     borderRadius: 16,
     backgroundColor: '#0b0f16',
     borderWidth: 1,
@@ -838,12 +1226,24 @@ const styles = StyleSheet.create({
   },
   tileTextWrap: { flex: 1, minWidth: 0 },
   tileTitle: { color: '#fff', fontWeight: '900', fontSize: 13 },
-  tileHint: { color: '#9aa0a6', fontSize: 12, marginTop: 2 },
+  tileHint: { color: '#9aa0a6', fontSize: 12, marginTop: 2, lineHeight: 16 },
+  secondaryToolsRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: -2, marginBottom: 6 },
+  secondaryToolChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: '#0a1426',
+    borderWidth: 1,
+    borderColor: '#22324f',
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  secondaryToolText: { color: '#9bbcff', fontSize: 12, fontWeight: '800' },
 
   pill: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999 },
   pillText: { fontSize: 12, fontWeight: '900' },
 
-  footerContainer: { marginTop: 14, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#0f1626' },
+  footerContainer: { marginTop: 18, paddingTop: 18, paddingBottom: 20, borderTopWidth: 1, borderTopColor: '#0f1626' },
   footer: { textAlign: 'center', color: '#7a7a7a', marginTop: 8, fontSize: 13 },
   footerSmall: { textAlign: 'center', color: '#5a5a5a', marginTop: 4, fontSize: 12 },
 });

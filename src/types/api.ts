@@ -54,7 +54,6 @@ export const StationSchema = z.object({
   status: z.enum(['open', 'closed', 'limited']).optional(),
   contactName: z.string().optional(),
   phone: z.string().optional(),
-  type: z.string().optional(),
   // These fields are "learned" over time from completed services (see Cloud Functions).
   avgServiceTimeMin: z.number().optional(),
   totalServiceTimeMin: z.number().optional(),

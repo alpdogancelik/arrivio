@@ -13,8 +13,6 @@ export const queryKeys = {
   stations: (facilityId?: string) => ['stations', facilityId ?? 'all'] as const,
   stationRecommendation: (facilityId: string | undefined, arrivalTime: string) =>
     ['stationRecommendation', facilityId ?? 'all', arrivalTime] as const,
-  bookingPredictedStatus: (id: string) => ['bookingPredictedStatus', id] as const,
   queueEntries: (params?: ListQueueEntryParams) =>
     ['queueEntries', params?.stationId ?? 'all', params?.carrierId ?? 'all', params?.bookingId ?? 'all'] as const,
-  reports: () => ['reports'] as const,
 };

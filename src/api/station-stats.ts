@@ -1,7 +1,5 @@
 import { db } from '@/services/firebase';
-import { USE_MOCK_DATA } from '@/config/mock';
 import type { StationStats } from '@/types/api';
-import { listMockStationStats, upsertMockStationStats } from '@/mock/data';
 import { fetchQueueEvents } from '@/api/queue-events';
 import { fetchStations } from '@/api/stations';
 import { DEFAULT_WINDOW_MINUTES, calculateStationStats } from '@/utils/recommendation';
@@ -59,11 +57,6 @@ const mapStationStats = (id: string, data: Record<string, any>): StationStats =>
 export const fetchStationStats = async (stationIds: string[], windowMinutes = DEFAULT_WINDOW_MINUTES) => {
   if (!stationIds.length) return [] as StationStats[];
 
-  if (USE_MOCK_DATA) {
-    const stats = listMockStationStats(windowMinutes);
-    return stats.filter((stat) => stationIds.includes(stat.stationId));
-  }
-
   const database = ensureDb();
   const stats = await Promise.all(
     stationIds.map(async (stationId) => {
@@ -77,11 +70,6 @@ export const fetchStationStats = async (stationIds: string[], windowMinutes = DE
 };
 
 export const upsertStationStats = async (stats: StationStats[]) => {
-  if (USE_MOCK_DATA) {
-    upsertMockStationStats(stats);
-    return;
-  }
-
   const database = ensureDb();
   await Promise.all(
     stats.map((stat) => {

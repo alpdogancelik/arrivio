@@ -60,15 +60,6 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="pulse/index"
-        options={{
-          title: t('common:tabs.pulse'),
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons size={22} name={focused ? 'stats-chart' : 'stats-chart-outline'} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="issues/index"
         options={{
           title: t('common:tabs.issues'),

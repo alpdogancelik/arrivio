@@ -1,6 +1,4 @@
 import { auth, db } from '@/services/firebase';
-import { USE_MOCK_DATA } from '@/config/mock';
-import { mockFetchMe, mockLogin, mockRefreshTokens, mockRegister } from '@/mock/data';
 import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
@@ -184,10 +182,6 @@ const buildTokens = (user: FirebaseUser, tokenResult: IdTokenResult): AuthTokens
   });
 
 export const login = async (payload: LoginPayload): Promise<LoginResult> => {
-  if (USE_MOCK_DATA) {
-    return mockLogin(payload);
-  }
-
   const authClient = ensureAuth();
   const cred = await signInWithEmailAndPassword(authClient, payload.email, payload.password);
   await ensureCarrierProfile(cred.user, { email: payload.email });
@@ -202,10 +196,6 @@ export const login = async (payload: LoginPayload): Promise<LoginResult> => {
 };
 
 export const register = async (payload: RegisterPayload): Promise<RegisterResult> => {
-  if (USE_MOCK_DATA) {
-    return mockRegister(payload);
-  }
-
   const authClient = ensureAuth();
   const cred = await createUserWithEmailAndPassword(authClient, payload.email, payload.password);
   const displayName = [payload.name, payload.surname].filter(Boolean).join(' ').trim();
@@ -245,12 +235,6 @@ export const requestPasswordReset = async (email: string): Promise<PasswordReset
     throw new ApiError({ status: 400, message: 'Enter your email address first.' });
   }
 
-  if (USE_MOCK_DATA) {
-    return {
-      message: 'Password reset email sent. Check your inbox and spam folder.',
-    };
-  }
-
   const authClient = ensureAuth();
   await sendPasswordResetEmail(authClient, normalizedEmail);
 
@@ -260,20 +244,12 @@ export const requestPasswordReset = async (email: string): Promise<PasswordReset
 };
 
 export const refreshSession = async (_refreshToken: string) => {
-  if (USE_MOCK_DATA) {
-    return mockRefreshTokens();
-  }
-
   const user = await requireUser();
   const tokenResult = await user.getIdTokenResult(true);
   return buildTokens(user, tokenResult);
 };
 
 export const fetchMe = async () => {
-  if (USE_MOCK_DATA) {
-    return mockFetchMe();
-  }
-
   const user = await requireUser();
   const tokenResult = await user.getIdTokenResult();
   const role = resolveRole(tokenResult.claims?.role);
@@ -282,10 +258,6 @@ export const fetchMe = async () => {
 };
 
 export const updateCarrierProfile = async (changes: Partial<User>) => {
-  if (USE_MOCK_DATA) {
-    return mockFetchMe();
-  }
-
   const user = await requireUser();
   const database = ensureDb();
   const ref = doc(database, 'Carrier', user.uid);

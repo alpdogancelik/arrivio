@@ -1,5 +1,4 @@
 import { db } from '@/services/firebase';
-import { USE_MOCK_DATA } from '@/config/mock';
 import type { QueueEntry } from '@/types/api';
 import { collection, getDocs } from 'firebase/firestore';
 
@@ -108,10 +107,6 @@ export type ListQueueEntryParams = {
 };
 
 export const fetchQueueEntries = async (params?: ListQueueEntryParams) => {
-  if (USE_MOCK_DATA) {
-    return [] as QueueEntry[];
-  }
-
   const database = ensureDb();
   const snapshot = await getDocs(collection(database, 'QueueEntry'));
   let entries = snapshot.docs.map((docSnap) => mapQueueEntry(docSnap.id, docSnap.data() as Record<string, any>));

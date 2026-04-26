@@ -1,18 +1,5 @@
-import { USE_MOCK_DATA } from '@/config/mock';
-import type { Booking, BookingPredictedStatus, BookingStatus } from '@/types/api';
-import {
-  cancelMockBooking,
-  completeMockBooking,
-  createMockBooking,
-  getMockBooking,
-  listMockBookings,
-  updateMockBooking,
-} from '@/mock/data';
-import { fetchQueueEvents } from '@/api/queue-events';
-import { fetchStationStats } from '@/api/station-stats';
-import { fetchStations } from '@/api/stations';
+import type { Booking, BookingStatus } from '@/types/api';
 import { auth, db } from '@/services/firebase';
-import { DEFAULT_ACTIVE_QUEUE_LOOKBACK_MINUTES, computePrediction, countActiveQueueByStation } from '@/utils/recommendation';
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from 'firebase/firestore';
 
@@ -174,8 +161,6 @@ export type CreateBookingPayload = {
 export type UpdateBookingPayload = Partial<Pick<CreateBookingPayload, 'arrivalTime' | 'stationId' | 'notes'>>;
 
 export const fetchBookings = async (params?: ListBookingsParams) => {
-  if (USE_MOCK_DATA) return Promise.resolve(listMockBookings(params));
-
   const database = ensureDb();
   const user = auth?.currentUser ?? (await waitForUser());
   const myUid = user?.uid;
@@ -207,8 +192,6 @@ export const fetchBookings = async (params?: ListBookingsParams) => {
 };
 
 export const fetchBooking = async (id: string) => {
-  if (USE_MOCK_DATA) return Promise.resolve(getMockBooking(id));
-
   const database = ensureDb();
   const snap = await getDoc(doc(database, 'Booking', id));
   if (!snap.exists()) {
@@ -219,8 +202,6 @@ export const fetchBooking = async (id: string) => {
 };
 
 export const createBooking = async (payload: CreateBookingPayload) => {
-  if (USE_MOCK_DATA) return Promise.resolve(createMockBooking(payload));
-
   const database = ensureDb();
   const user = await ensureUser();
   const ref = doc(collection(database, 'Booking'));
@@ -263,8 +244,6 @@ export const createBooking = async (payload: CreateBookingPayload) => {
 };
 
 export const updateBooking = async (id: string, payload: UpdateBookingPayload) => {
-  if (USE_MOCK_DATA) return Promise.resolve(updateMockBooking(id, payload));
-
   const database = ensureDb();
   await ensureUser();
   const updates: Record<string, any> = { UpdatedAt: serverTimestamp() };
@@ -290,8 +269,6 @@ export const updateBooking = async (id: string, payload: UpdateBookingPayload) =
 };
 
 export const cancelBooking = async (id: string, _reason?: string) => {
-  if (USE_MOCK_DATA) return Promise.resolve(cancelMockBooking(id));
-
   const database = ensureDb();
   await ensureUser();
   await updateDoc(doc(database, 'Booking', id), {
@@ -306,8 +283,6 @@ export const cancelBooking = async (id: string, _reason?: string) => {
 };
 
 export const completeBooking = async (id: string) => {
-  if (USE_MOCK_DATA) return Promise.resolve(completeMockBooking(id));
-
   const database = ensureDb();
   await ensureUser();
   await updateDoc(doc(database, 'Booking', id), {
@@ -319,45 +294,4 @@ export const completeBooking = async (id: string) => {
     throw new Error('Booking not found');
   }
   return mapBooking(snap.id, snap.data() as Record<string, any>);
-};
-
-export const fetchBookingPredictedStatus = async (id: string): Promise<BookingPredictedStatus> => {
-  const booking = await fetchBooking(id);
-  const now = new Date();
-  const lookbackMinutes = DEFAULT_ACTIVE_QUEUE_LOOKBACK_MINUTES;
-  const sinceIso = new Date(now.getTime() - lookbackMinutes * 60000).toISOString();
-
-  const [stations, stats, events] = await Promise.all([
-    fetchStations(booking.facilityId),
-    fetchStationStats([booking.stationId]),
-    fetchQueueEvents({ facilityId: booking.facilityId, stationId: booking.stationId, since: sinceIso }),
-  ]);
-
-  const station = stations.find((item) => item.id === booking.stationId);
-  const currentQueue =
-    countActiveQueueByStation(events, { now, lookbackMinutes }).get(booking.stationId) ?? 0;
-  const stat = stats[0];
-
-  const prediction = computePrediction({
-    arrivalTime: booking.arrivalTime,
-    now,
-    currentQueue,
-    avgServiceSec: stat?.avgServiceSec,
-    lambdaPerMin: stat?.lambdaPerMin,
-    servers: station?.servers,
-  });
-
-  const arrivalMs = new Date(booking.arrivalTime).getTime();
-  const arrivalTime = Number.isFinite(arrivalMs) ? arrivalMs : now.getTime();
-  const serviceStartEta = new Date(arrivalTime + prediction.predictedWaitMin * 60000).toISOString();
-
-  return {
-    bookingId: booking.id,
-    stationId: booking.stationId,
-    predictedWaitMin: prediction.predictedWaitMin,
-    predictedPosition: prediction.predictedPosition,
-    predictedQueue: prediction.predictedQueue,
-    serviceStartEta,
-    updatedAt: now.toISOString(),
-  };
 };

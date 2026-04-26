@@ -1,313 +1,526 @@
-import { useAuth } from '@/components/auth-context';
-import { GradientButton } from '@/components/gradient-button';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { images } from '@/constants/images';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
-import { Link, useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
-import { Alert, Platform, StatusBar, StyleSheet, Switch, TextInput, View } from 'react-native';
-import { useTranslation } from 'react-i18next';
-import { saveLanguage } from '@/storage/language-store';
+import { useAuth } from "@/components/auth-context";
+import { ThemedText } from "@/components/themed-text";
+import { ThemedView } from "@/components/themed-view";
+import { saveLanguage } from "@/storage/language-store";
 
-const cardShadow = Platform.select({
-  ios: {
-    shadowColor: '#2b8cff',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-  },
-  android: {
-    elevation: 10,
-  },
-  default: {
-    boxShadow: '0px 8px 20px rgba(43, 140, 255, 0.1)',
-  } as any,
-});
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import React, { useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  TextInput,
+  View,
+} from "react-native";
+import { useTranslation } from "react-i18next";
+
+const UI = {
+  bg: "#08090b",
+  card: "#101113",
+  cardSoft: "#0b0c0e",
+  border: "#20242b",
+  borderSoft: "#2b313b",
+  text: "#f7f9fc",
+  muted: "#9aa3af",
+  mutedSoft: "#6f7782",
+  primary: "#2b8cff",
+  primarySoft: "rgba(43, 140, 255, 0.14)",
+  primaryBorder: "rgba(43, 140, 255, 0.35)",
+};
+
+function LanguageMiniOption({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.langMiniOption,
+        active && styles.langMiniOptionActive,
+        pressed && styles.pressed,
+      ]}
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+    >
+      <ThemedText style={[styles.langMiniText, active && styles.langMiniTextActive]}>
+        {label}
+      </ThemedText>
+    </Pressable>
+  );
+}
 
 export default function LoginScreen() {
-  //Router is used to redirect after a successful login
   const router = useRouter();
-
-  //Auth context exposes the login() function (likely hits your backend / Firebase)
   const { login } = useAuth();
+  const { t, i18n } = useTranslation(["auth", "settings", "common"]);
 
-  //i18n translations for the "auth" namespace
-  const { t, i18n } = useTranslation(['auth', 'settings']);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
 
-  //Local form state
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-
-  //Prevent double-submit + show "processing" label
   const [loading, setLoading] = useState(false);
+  const [languageBusy, setLanguageBusy] = useState(false);
 
-  //Simple client side check so we don’t submit empty credentials
+  const cleanEmail = email.trim();
+
   const canSubmit = useMemo(() => {
-    return email.trim().length > 0 && password.length > 0 && !loading;
-  }, [email, password, loading]);
-  const resolvedLanguage = (i18n.resolvedLanguage ?? i18n.language ?? 'en').toLowerCase();
-  const isTurkish = resolvedLanguage.startsWith('tr');
+    return cleanEmail.length > 0 && password.length > 0 && !loading;
+  }, [cleanEmail, password, loading]);
 
-  const showEnglishLoginError = (message?: string) => {
-    Alert.alert('Sign in failed', message ?? 'Invalid email or password.');
+  const resolvedLanguage = (i18n.resolvedLanguage ?? i18n.language ?? "en").toLowerCase();
+  const isTurkish = resolvedLanguage.startsWith("tr");
+
+  const handleLanguageChange = async (nextLanguage: "en" | "tr") => {
+    if (languageBusy) return;
+
+    const current = isTurkish ? "tr" : "en";
+    if (nextLanguage === current) return;
+
+    try {
+      setLanguageBusy(true);
+      await i18n.changeLanguage(nextLanguage);
+      await saveLanguage(nextLanguage);
+    } catch (error: any) {
+      Alert.alert(
+        t("settings:language", { defaultValue: "Language" }),
+        error?.message ?? t("common:unexpectedError", { defaultValue: "Unexpected error" }),
+      );
+    } finally {
+      setLanguageBusy(false);
+    }
+  };
+
+  const showLoginError = (message?: string) => {
+    Alert.alert(
+      t("auth:loginFailedTitle", { defaultValue: "Sign in failed" }),
+      message ?? t("auth:loginFailedBody", { defaultValue: "Invalid email or password." }),
+    );
   };
 
   const onLogin = async () => {
-    //Extra guard against accidental double taps
     if (!canSubmit) return;
 
     setLoading(true);
 
     try {
-      //Trim email to avoid whitespace issues (common on mobile keyboards)
-      const res = await login(email.trim(), password);
+      const res = await login(cleanEmail, password);
 
-      //If the auth layer reports failure, show an alert and stay on the screen
       if (!res.ok) {
-        showEnglishLoginError(res.message);
+        showLoginError(res.message);
         return;
       }
 
-      //Success: replace so users can’t go back to login with the back gesture
-      router.replace('/(tabs)/home');
-    } catch {
-      //Safety net: if login() throws instead of returning { ok: false }
-      showEnglishLoginError();
+      router.replace("/(tabs)/home");
+    } catch (error: any) {
+      showLoginError(error?.message);
     } finally {
-      //Always release loading state
       setLoading(false);
     }
   };
 
-  const handleLanguageToggle = async (value: boolean) => {
-    const nextLanguage = value ? 'tr' : 'en';
-    if (nextLanguage === i18n.language) return;
-    await i18n.changeLanguage(nextLanguage);
-    await saveLanguage(nextLanguage);
-  };
-
   return (
-    <View style={styles.container}>
-      {/*Force a dark status bar style (Android also gets a backgroundColor)*/}
-      <StatusBar barStyle="light-content" backgroundColor="#000000" />
+    <SafeAreaView style={styles.safe}>
+      <StatusBar barStyle="light-content" backgroundColor={UI.bg} />
 
-      {/*Decorative hero image (absolute positioned)*/}
-      <Image
-        source={images.key}
-        style={[styles.heroImage, Platform.OS === 'web' ? ({ pointerEvents: 'none' } as any) : null]}
-        contentFit="contain"
-      />
+      <KeyboardAvoidingView
+        style={styles.keyboard}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <ScrollView
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <ThemedView style={styles.authCard}>
+            <View style={styles.topRow}>
+              <View style={styles.brandMark}>
+                <Ionicons name="navigate-outline" size={22} color={UI.primary} />
+              </View>
 
-      {/*Header block*/}
-      <View style={styles.header}>
-        {/*Big icon to set the tone (logistics / trucking)*/}
-        <MaterialCommunityIcons name="truck" size={70} color="#4aa8ff" style={styles.truckIcon} />
+              <View style={styles.languageMini}>
+                {languageBusy ? (
+                  <ActivityIndicator size="small" color={UI.primary} />
+                ) : (
+                  <>
+                    <LanguageMiniOption
+                      label="EN"
+                      active={!isTurkish}
+                      onPress={() => handleLanguageChange("en")}
+                    />
 
-        {/*Title + subtitle from translations*/}
-        <ThemedText type="title" style={styles.title}>
-          {t('loginTitle')}
-        </ThemedText>
-        <ThemedText style={styles.subtitle}>{t('loginSubtitle')}</ThemedText>
-      </View>
+                    <LanguageMiniOption
+                      label="TR"
+                      active={isTurkish}
+                      onPress={() => handleLanguageChange("tr")}
+                    />
+                  </>
+                )}
+              </View>
+            </View>
 
-      <ThemedView style={styles.languageCard}>
-        <ThemedText style={styles.languageTitle}>{t('settings:language')}</ThemedText>
-        <View style={styles.languageRow}>
-          <ThemedText style={[styles.languageOption, !isTurkish && styles.languageOptionActive]}>
-            {t('settings:languageEnglish')}
-          </ThemedText>
-          <Switch value={isTurkish} onValueChange={handleLanguageToggle} />
-          <ThemedText style={[styles.languageOption, isTurkish && styles.languageOptionActive]}>
-            {t('settings:languageTurkish')}
-          </ThemedText>
-        </View>
-      </ThemedView>
+            <View style={styles.header}>
+              <ThemedText style={styles.title}>
+                {t("auth:loginTitle", { defaultValue: "Welcome back" })}
+              </ThemedText>
 
-      {/*Centered card container*/}
-      <ThemedView style={styles.centerCard}>
-        <ThemedView style={styles.card}>
-          {/*Decorative image inside the card*/}
-          <Image
-            source={images.pin}
-            style={[styles.cardImage, Platform.OS === 'web' ? ({ pointerEvents: 'none' } as any) : null]}
-            contentFit="contain"
-          />
+              <ThemedText style={styles.subtitle}>
+                {t("auth:loginSubtitle", {
+                  defaultValue: "Sign in to manage reservations and live queue status.",
+                })}
+              </ThemedText>
+            </View>
 
-          {/*Email input*/}
-          <TextInput
-            placeholder={t('email')}
-            placeholderTextColor="#a9a9a9"
-            value={email}
-            onChangeText={setEmail}
-            style={styles.input}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-            //Helps iOS autofill understand what this field is
-            textContentType="emailAddress"
-            //Pressing enter should move to password logically (not perfect without refs, but ok)
-            returnKeyType="next"
-          />
+            <View style={styles.form}>
+              <View style={styles.inputWrap}>
+                <Ionicons name="mail-outline" size={18} color={UI.muted} style={styles.inputIcon} />
 
-          {/*Password input*/}
-          <TextInput
-            placeholder={t('password')}
-            placeholderTextColor="#a9a9a9"
-            secureTextEntry
-            value={password}
-            onChangeText={setPassword}
-            style={styles.input}
-            textContentType="password"
-            returnKeyType="done"
-            //Convenient: submit from keyboard "Done"
-            onSubmitEditing={onLogin}
-          />
+                <TextInput
+                  placeholder={t("auth:email", { defaultValue: "Email" })}
+                  placeholderTextColor="#747d89"
+                  value={email}
+                  onChangeText={setEmail}
+                  style={styles.input}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  textContentType="emailAddress"
+                  returnKeyType="next"
+                />
+              </View>
 
-          {/*Primary CTA (call to action)*/}
-          <GradientButton onPress={onLogin} disabled={!canSubmit}>
-            {loading ? t('loginProcessing') : t('loginCta')}
-          </GradientButton>
+              <View style={styles.inputWrap}>
+                <Ionicons name="lock-closed-outline" size={18} color={UI.muted} style={styles.inputIcon} />
 
-          <ThemedText style={styles.forgotPassword} onPress={() => router.push('/forgot-password')}>
-            {t('forgotPassword')}
-          </ThemedText>
+                <TextInput
+                  placeholder={t("auth:password", { defaultValue: "Password" })}
+                  placeholderTextColor="#747d89"
+                  secureTextEntry={!passwordVisible}
+                  value={password}
+                  onChangeText={setPassword}
+                  style={styles.input}
+                  textContentType="password"
+                  autoCapitalize="none"
+                  returnKeyType="done"
+                  onSubmitEditing={onLogin}
+                />
 
-          {/*Register link*/}
-          <ThemedText style={styles.smallText}>{t('noAccount')}</ThemedText>
-          <Link href="/register">
-            <ThemedText style={styles.registerLink}>{t('register')}</ThemedText>
-          </Link>
-        </ThemedView>
-      </ThemedView>
-    </View>
+                <Pressable
+                  onPress={() => setPasswordVisible((value) => !value)}
+                  style={({ pressed }) => [styles.eyeButton, pressed && styles.pressed]}
+                  accessibilityRole="button"
+                >
+                  <Ionicons
+                    name={passwordVisible ? "eye-off-outline" : "eye-outline"}
+                    size={19}
+                    color={UI.muted}
+                  />
+                </Pressable>
+              </View>
+
+              <Pressable
+                onPress={onLogin}
+                disabled={!canSubmit}
+                style={({ pressed }) => [
+                  styles.submitButton,
+                  !canSubmit && styles.submitButtonDisabled,
+                  pressed && canSubmit && styles.submitButtonPressed,
+                ]}
+                accessibilityRole="button"
+              >
+                {loading ? (
+                  <View style={styles.submitRow}>
+                    <ActivityIndicator color="#ffffff" />
+                    <ThemedText style={styles.submitText}>
+                      {t("auth:loginProcessing", { defaultValue: "Signing in..." })}
+                    </ThemedText>
+                  </View>
+                ) : (
+                  <ThemedText style={styles.submitText}>
+                    {t("auth:loginCta", { defaultValue: "Sign in" })}
+                  </ThemedText>
+                )}
+              </Pressable>
+
+              <Pressable
+                onPress={() => router.push("/forgot-password")}
+                style={({ pressed }) => [styles.forgotButton, pressed && styles.pressed]}
+                accessibilityRole="button"
+              >
+                <ThemedText style={styles.forgotText}>
+                  {t("auth:forgotPassword", { defaultValue: "Forgot password?" })}
+                </ThemedText>
+              </Pressable>
+            </View>
+
+            <View style={styles.divider} />
+
+            <View style={styles.registerRow}>
+              <ThemedText style={styles.registerHint}>
+                {t("auth:noAccount", { defaultValue: "Don’t have an account?" })}
+              </ThemedText>
+
+              <Pressable
+                onPress={() => router.push("/register")}
+                style={({ pressed }) => [styles.registerButton, pressed && styles.pressed]}
+                accessibilityRole="button"
+              >
+                <ThemedText style={styles.registerText}>
+                  {t("auth:register", { defaultValue: "Create account" })}
+                </ThemedText>
+              </Pressable>
+            </View>
+          </ThemedView>
+
+          <View style={styles.footerNote}>
+            <Ionicons name="shield-checkmark-outline" size={15} color={UI.mutedSoft} />
+            <ThemedText style={styles.footerNoteText}>
+              {t("auth:loginSecurityNote", {
+                defaultValue: "Secure carrier access for Arrivio queue operations.",
+              })}
+            </ThemedText>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safe: {
     flex: 1,
-    backgroundColor: '#0b0b0b',
-    //On Android we offset below the status bar (since it overlays content)
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) + 60 : 80,
-    paddingHorizontal: 24,
+    backgroundColor: UI.bg,
   },
+
+  keyboard: {
+    flex: 1,
+  },
+
+  content: {
+    flexGrow: 1,
+    justifyContent: "center",
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === "android" ? 24 : 16,
+    paddingBottom: 34,
+  },
+
+  authCard: {
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: UI.borderSoft,
+    backgroundColor: UI.card,
+    padding: 18,
+  },
+
+  topRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 22,
+  },
+
+  brandMark: {
+    width: 46,
+    height: 46,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: UI.primarySoft,
+    borderWidth: 1,
+    borderColor: UI.primaryBorder,
+  },
+
+  languageMini: {
+    minWidth: 92,
+    height: 38,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: UI.border,
+    backgroundColor: UI.cardSoft,
+    padding: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  langMiniOption: {
+    flex: 1,
+    height: 30,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  langMiniOptionActive: {
+    backgroundColor: UI.primary,
+  },
+
+  langMiniText: {
+    color: UI.muted,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+
+  langMiniTextActive: {
+    color: "#ffffff",
+  },
+
   header: {
-    alignItems: 'center',
-    marginBottom: 30,
-    paddingTop: 20,
+    marginBottom: 24,
   },
-  truckIcon: {
-    marginBottom: 15,
-  },
+
   title: {
-    textAlign: 'center',
-    marginTop: 9,
-    color: '#ffffff',
-    fontSize: 38,
-    fontWeight: '800',
-    letterSpacing: 1,
+    color: UI.text,
+    fontSize: 34,
+    lineHeight: 39,
+    fontFamily: Platform.select({ web: "system-ui, -apple-system, Segoe UI, sans-serif", default: "ChairoSans" }),
+    fontWeight: "800",
+    letterSpacing: 0,
   },
+
   subtitle: {
-    textAlign: 'center',
-    color: '#cfcfcf',
-    marginBottom: 16,
-    marginTop: 10,
+    color: UI.muted,
     fontSize: 14,
+    lineHeight: 20,
+    marginTop: 8,
+    maxWidth: 310,
   },
-  centerCard: {
-    alignItems: 'center',
-    backgroundColor: 'transparent',
+
+  form: {
+    gap: 12,
   },
-  languageCard: {
-    marginBottom: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+
+  inputWrap: {
+    minHeight: 54,
+    flexDirection: "row",
+    alignItems: "center",
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#1a1a1a',
-    backgroundColor: '#0f0f0f',
+    borderColor: UI.border,
+    backgroundColor: UI.cardSoft,
   },
-  languageTitle: {
-    color: '#fff',
-    fontWeight: '800',
-    fontSize: 13,
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  languageRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-  },
-  languageOption: {
-    color: '#6b6b6b',
-    fontWeight: '800',
-    fontSize: 12,
-  },
-  languageOptionActive: {
-    color: '#fff',
-  },
-  card: {
-    width: '100%',
-    backgroundColor: '#0a0a0a',
-    padding: 24,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#1a1a1a',
-    overflow: 'hidden',
 
-    //Light blue glow-ish shadow (iOS)
-    ...cardShadow,
+  inputIcon: {
+    marginLeft: 14,
+    marginRight: 10,
   },
+
   input: {
-    height: 54,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-    paddingHorizontal: 16,
-    color: '#fff',
-    backgroundColor: '#151515',
-    marginBottom: 12,
+    flex: 1,
+    color: UI.text,
     fontSize: 15,
-    fontFamily: 'ChairoSans',
+    minHeight: 54,
+    paddingRight: 12,
   },
-  smallText: {
-    textAlign: 'center',
-    color: '#cfcfcf',
-    marginTop: 6,
+
+  eyeButton: {
+    width: 44,
+    height: 54,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  submitButton: {
+    minHeight: 52,
+    borderRadius: 16,
+    backgroundColor: UI.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 2,
+  },
+
+  submitButtonDisabled: {
+    opacity: 0.55,
+  },
+
+  submitButtonPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.99 }],
+  },
+
+  submitRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  submitText: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "900",
+    marginLeft: 8,
+  },
+
+  forgotButton: {
+    minHeight: 42,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  forgotText: {
+    color: UI.primary,
     fontSize: 13,
+    fontWeight: "900",
   },
-  forgotPassword: {
-    textAlign: 'center',
-    marginTop: 12,
-    color: '#9bbcff',
-    fontWeight: '700',
+
+  divider: {
+    height: 1,
+    backgroundColor: UI.border,
+    marginVertical: 16,
+  },
+
+  registerRow: {
+    alignItems: "center",
+  },
+
+  registerHint: {
+    color: UI.muted,
     fontSize: 13,
+    marginBottom: 8,
   },
-  registerLink: {
-    textAlign: 'center',
-    marginTop: 6,
-    color: '#2b8cff',
-    fontWeight: '700',
-    fontSize: 14,
+
+  registerButton: {
+    minHeight: 34,
+    paddingHorizontal: 12,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  heroImage: {
-    position: 'absolute',
-    right: -10,
-    top: -10,
-    width: 180,
-    height: 180,
-    opacity: 0.2,
+
+  registerText: {
+    color: UI.primary,
+    fontSize: 13,
+    fontWeight: "900",
   },
-  cardImage: {
-    position: 'absolute',
-    right: -20,
-    top: -20,
-    width: 140,
-    height: 140,
-    opacity: 0.12,
+
+  footerNote: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 18,
+    paddingHorizontal: 12,
+  },
+
+  footerNoteText: {
+    color: UI.mutedSoft,
+    fontSize: 11,
+    lineHeight: 17,
+    marginLeft: 7,
+    textAlign: "center",
+    flexShrink: 1,
+  },
+
+  pressed: {
+    opacity: 0.72,
   },
 });

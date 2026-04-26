@@ -7,10 +7,7 @@ import {
   updateCarrierProfile,
   type RegisterPayload,
 } from '@/api/auth';
-import { configureClient } from '@/api/client';
 import { mapApiError } from '@/api/errors';
-import { USE_MOCK_DATA } from '@/config/mock';
-import { getMockSession } from '@/mock/data';
 import { clearTokens, loadTokens, saveTokens } from '@/storage/token-store';
 import { AuthTokens, User } from '@/types/api';
 import { useQueryClient } from '@tanstack/react-query';
@@ -72,25 +69,18 @@ const withTimeout = async <T,>(promise: Promise<T>, label: string, timeoutMs?: n
 };
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<State>(() => {
-    if (!USE_MOCK_DATA) {
-      return { user: null, tokens: null, status: 'checking', error: undefined };
-    }
-    const session = getMockSession();
-    return { user: session.user, tokens: session.tokens, status: 'authenticated', error: undefined };
-  });
+  const [state, setState] = useState<State>(() => ({
+    user: null,
+    tokens: null,
+    status: 'checking',
+    error: undefined,
+  }));
   const tokensRef = useRef<AuthTokens | null>(null);
   const hydratedRef = useRef(false);
   const queryClient = useQueryClient();
 
   const logout = useCallback(
     async (message?: string) => {
-      if (USE_MOCK_DATA) {
-        const session = getMockSession();
-        tokensRef.current = session.tokens;
-        setState({ user: session.user, tokens: session.tokens, status: 'authenticated', error: message });
-        return;
-      }
       tokensRef.current = null;
       await clearTokens();
       setState({ user: null, tokens: null, status: 'unauthenticated', error: message });
@@ -117,14 +107,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return null;
     }
   }, [logout]);
-
-  useEffect(() => {
-    configureClient({
-      getTokens: () => tokensRef.current,
-      refreshTokens,
-      onUnauthorized: logout,
-    });
-  }, [logout, refreshTokens]);
 
   useEffect(() => {
     tokensRef.current = state.tokens;
@@ -165,7 +147,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [logout, refreshTokens]);
 
   useEffect(() => {
-    if (USE_MOCK_DATA) return;
     if (hydratedRef.current) return;
     hydratedRef.current = true;
     void hydrate();
@@ -258,15 +239,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser: (u: User | null) => setState((s) => ({ ...s, user: u })),
       updateUser: async (changes: Partial<User>) => {
         if (!state.user) return null;
-        if (USE_MOCK_DATA) {
-          let updated: User | null = null;
-          setState((s) => {
-            if (!s.user) return s;
-            updated = { ...s.user, ...changes };
-            return { ...s, user: updated };
-          });
-          return updated;
-        }
 
         const updated = await updateCarrierProfile(changes);
         setState((s) => ({ ...s, user: updated }));

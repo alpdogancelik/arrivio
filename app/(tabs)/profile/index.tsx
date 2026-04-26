@@ -1,10 +1,7 @@
-// app/(tabs)/profile/index.tsx
-
-import { useAuth } from '@/components/auth-context';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import React, { useEffect, useMemo, useState } from 'react';
+import { useAuth } from "@/components/auth-context";
+import { ThemedText } from "@/components/themed-text";
+import { ThemedView } from "@/components/themed-view";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Pressable,
@@ -14,10 +11,9 @@ import {
   Switch,
   TextInput,
   View,
-} from 'react-native';
-import { Image } from 'expo-image';
-import { useTranslation } from 'react-i18next';
-import { images } from '@/constants/images';
+} from "react-native";
+import { useTranslation } from "react-i18next";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type ProfileForm = {
   firstName: string;
@@ -29,36 +25,110 @@ type ProfileForm = {
   available: boolean;
 };
 
-function Row({ label, value }: { label: string; value: string }) {
+const UI = {
+  bg: "#08090b",
+  card: "#101113",
+  cardSoft: "#0b0c0e",
+  border: "#20242b",
+  borderSoft: "#2b313b",
+  text: "#f7f9fc",
+  muted: "#9aa3af",
+  mutedSoft: "#6f7782",
+  primary: "#2b8cff",
+  primarySoft: "rgba(43, 140, 255, 0.14)",
+  primaryBorder: "rgba(43, 140, 255, 0.35)",
+  green: "#22c55e",
+  red: "#ef4444",
+};
+
+function getInitials(firstName?: string | null, lastName?: string | null) {
+  const first = firstName?.trim()?.[0] ?? "";
+  const last = lastName?.trim()?.[0] ?? "";
+  const initials = `${first}${last}`.toUpperCase();
+
+  return initials || "DR";
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <View style={styles.row}>
-      <ThemedText style={styles.rowLabel}>{label}</ThemedText>
-      <ThemedText style={styles.rowValue} numberOfLines={1}>
-        {value || '—'}
+    <View style={styles.infoRow}>
+      <ThemedText style={styles.infoLabel}>{label}</ThemedText>
+      <ThemedText style={styles.infoValue} numberOfLines={1}>
+        {value || "—"}
       </ThemedText>
+    </View>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChangeText,
+  placeholder,
+  keyboardType,
+}: {
+  label: string;
+  value: string;
+  onChangeText: (value: string) => void;
+  placeholder: string;
+  keyboardType?: "default" | "phone-pad" | "numeric";
+}) {
+  return (
+    <View style={styles.fieldWrap}>
+      <ThemedText style={styles.fieldLabel}>{label}</ThemedText>
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor="#737b86"
+        style={styles.input}
+        keyboardType={keyboardType ?? "default"}
+      />
+    </View>
+  );
+}
+
+function SettingRow({
+  label,
+  value,
+  onValueChange,
+}: {
+  label: string;
+  value: boolean;
+  onValueChange: (value: boolean) => void;
+}) {
+  return (
+    <View style={styles.settingRow}>
+      <ThemedText style={styles.settingLabel}>{label}</ThemedText>
+      <Switch
+        value={value}
+        onValueChange={onValueChange}
+        trackColor={{ false: "#555b64", true: "rgba(43, 140, 255, 0.45)" }}
+        thumbColor={value ? "#10b4a7" : "#f2f2f2"}
+      />
     </View>
   );
 }
 
 export default function ProfileScreen() {
   const { user, updateUser } = useAuth();
-  const { t } = useTranslation(['profile', 'common']);
+  const { t } = useTranslation(["profile", "common"]);
+  const insets = useSafeAreaInsets();
 
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // local-only toggles (wire to backend later if you want)
   const [pushEnabled, setPushEnabled] = useState(true);
   const [autoAccept, setAutoAccept] = useState(false);
 
   const initialForm: ProfileForm = useMemo(
     () => ({
-      firstName: user?.name ?? '',
-      lastName: (user as any)?.surname ?? '',
-      phone: (user as any)?.phone ?? '',
-      company: (user as any)?.company ?? '',
-      vehiclePlate: (user as any)?.vehiclePlate ?? '',
-      capacity: String((user as any)?.capacity ?? ''),
+      firstName: user?.name ?? "",
+      lastName: (user as any)?.surname ?? "",
+      phone: (user as any)?.phone ?? "",
+      company: (user as any)?.company ?? "",
+      vehiclePlate: (user as any)?.vehiclePlate ?? "",
+      capacity: String((user as any)?.capacity ?? ""),
       available: (user as any)?.available ?? true,
     }),
     [user],
@@ -70,11 +140,17 @@ export default function ProfileScreen() {
     setForm(initialForm);
   }, [initialForm]);
 
-  const displayName =
-    `${user?.name ?? t('profile:guest', { defaultValue: 'Driver' })}${(user as any)?.surname ? ` ${(user as any).surname}` : ''}`.trim();
+  const displayName = `${user?.name ?? t("profile:guest", { defaultValue: "Driver" })}${
+    (user as any)?.surname ? ` ${(user as any).surname}` : ""
+  }`.trim();
 
-  const roleLabel = String((user as any)?.role ?? 'carrier');
-  const availabilityLabel = form.available ? t('profile:available') : t('profile:unavailable');
+  const initials = getInitials(user?.name, (user as any)?.surname);
+
+  const roleKey = String((user as any)?.role ?? "carrier");
+  const roleLabel = t(`common:roles.${roleKey}`, { defaultValue: roleKey });
+  const availabilityLabel = form.available
+    ? t("profile:available", { defaultValue: "Available" })
+    : t("profile:unavailable", { defaultValue: "Unavailable" });
 
   const cancel = () => {
     setForm(initialForm);
@@ -85,13 +161,14 @@ export default function ProfileScreen() {
     if (saving) return;
 
     const capacityNum = Number(form.capacity);
+
     const payload: any = {
       name: form.firstName.trim(),
       surname: form.lastName.trim(),
       phone: form.phone.trim(),
       company: form.company.trim(),
       vehiclePlate: form.vehiclePlate.trim(),
-      capacity: Number.isFinite(capacityNum) && form.capacity.trim() !== '' ? capacityNum : undefined,
+      capacity: Number.isFinite(capacityNum) && form.capacity.trim() !== "" ? capacityNum : undefined,
       available: form.available,
     };
 
@@ -99,9 +176,15 @@ export default function ProfileScreen() {
       setSaving(true);
       await updateUser(payload);
       setEditing(false);
-      Alert.alert(t('profile:savedTitle'), t('profile:savedBody'));
-    } catch (e: any) {
-      Alert.alert(t('profile:updateFailedTitle'), e?.message ?? t('profile:updateFailedBody'));
+      Alert.alert(
+        t("profile:savedTitle", { defaultValue: "Profile updated" }),
+        t("profile:savedBody", { defaultValue: "Your profile information has been saved." }),
+      );
+    } catch (error: any) {
+      Alert.alert(
+        t("profile:updateFailedTitle", { defaultValue: "Update failed" }),
+        error?.message ?? t("profile:updateFailedBody", { defaultValue: "Please try again." }),
+      );
     } finally {
       setSaving(false);
     }
@@ -110,339 +193,496 @@ export default function ProfileScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: 118 + insets.bottom }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* HERO */}
-        <View style={styles.hero}>
-          <Image source={images.cellphone} style={styles.heroImage} contentFit="contain" />
-
-          <View style={styles.heroHeader}>
-            <View style={styles.avatarWrap}>
-              <IconSymbol name="person.crop.circle" size={64} color="#2b8cff" />
-            </View>
-
-            <View style={styles.headerText}>
-              <ThemedText type="title" style={styles.title}>
-                {t('profile:title', { name: displayName })}
-              </ThemedText>
-              <ThemedText style={styles.email}>{user?.email ?? '—'}</ThemedText>
-
-              <View style={styles.heroBadges}>
-                <View style={styles.badge}>
-                  <ThemedText style={styles.badgeText}>{t('profile:verified')}</ThemedText>
-                </View>
-                <View style={styles.badgeMuted}>
-                  <ThemedText style={styles.badgeMutedText}>
-                    {t('profile:roleLabel', { role: roleLabel })}
-                  </ThemedText>
-                </View>
-              </View>
-            </View>
-
-            {!editing ? (
-              <Pressable onPress={() => setEditing(true)} style={styles.editBtn} hitSlop={10}>
-                <ThemedText style={styles.editBtnText}>{t('profile:edit')}</ThemedText>
-              </Pressable>
-            ) : (
-              <View style={styles.heroActions}>
-                <Pressable onPress={cancel} style={styles.heroActionGhost} hitSlop={8}>
-                  <ThemedText style={styles.heroActionGhostText}>{t('profile:cancel')}</ThemedText>
-                </Pressable>
-                <Pressable
-                  onPress={save}
-                  disabled={saving}
-                  style={[styles.heroActionPrimary, saving && styles.disabled]}
-                  hitSlop={8}
-                >
-                  <ThemedText style={styles.heroActionPrimaryText}>
-                    {saving ? t('profile:saving') : t('profile:save')}
-                  </ThemedText>
-                </Pressable>
-              </View>
-            )}
+        <ThemedView style={styles.profileCard}>
+          <View style={styles.avatar}>
+            <ThemedText style={styles.avatarText}>{initials}</ThemedText>
           </View>
-        </View>
 
-        {/* ACCOUNT DETAILS */}
-        <ThemedView style={styles.card}>
-          <Image source={images.wallet} style={styles.cardImage} contentFit="contain" />
-          <ThemedText type="subtitle" style={styles.sectionTitle}>
-            {t('profile:accountDetails')}
-          </ThemedText>
-
-          {!editing ? (
-            <View style={styles.rowBlock}>
-              <Row label={t('profile:firstName')} value={user?.name ?? '-'} />
-              <Row label={t('profile:lastName')} value={(user as any)?.surname ?? '-'} />
-              <Row label={t('profile:phone')} value={(user as any)?.phone ?? '-'} />
-              <Row label={t('profile:company')} value={(user as any)?.company ?? '-'} />
-            </View>
-          ) : (
-            <View style={styles.formBlock}>
-              <TextInput
-                value={form.firstName}
-                onChangeText={(v) => setForm((s) => ({ ...s, firstName: v }))}
-                placeholder={t('profile:firstNamePlaceholder')}
-                placeholderTextColor="#8b8b8b"
-                style={styles.input}
-                autoCapitalize="words"
-              />
-              <TextInput
-                value={form.lastName}
-                onChangeText={(v) => setForm((s) => ({ ...s, lastName: v }))}
-                placeholder={t('profile:lastNamePlaceholder')}
-                placeholderTextColor="#8b8b8b"
-                style={styles.input}
-                autoCapitalize="words"
-              />
-              <TextInput
-                value={form.phone}
-                onChangeText={(v) => setForm((s) => ({ ...s, phone: v }))}
-                placeholder={t('profile:phonePlaceholder')}
-                placeholderTextColor="#8b8b8b"
-                style={styles.input}
-                keyboardType="phone-pad"
-              />
-              <TextInput
-                value={form.company}
-                onChangeText={(v) => setForm((s) => ({ ...s, company: v }))}
-                placeholder={t('profile:companyPlaceholder')}
-                placeholderTextColor="#8b8b8b"
-                style={styles.input}
-              />
-            </View>
-          )}
-        </ThemedView>
-
-        {/* VEHICLE */}
-        <ThemedView style={styles.card}>
-          <Image source={images.houseIcon} style={styles.cardImageAlt} contentFit="contain" />
-          <View style={styles.sectionHeaderRow}>
-            <ThemedText type="subtitle" style={styles.sectionTitle}>
-              {t('profile:vehicle')}
+          <View style={styles.profileMain}>
+            <ThemedText style={styles.profileName}>
+              {t("profile:title", { name: displayName, defaultValue: `Hi, ${displayName}` })}
             </ThemedText>
 
-            {!editing ? (
-              <View
-                style={[
-                  styles.statusPill,
-                  form.available ? styles.statusPillOk : styles.statusPillBad,
-                ]}
-              >
-                <ThemedText
-                  style={[
-                    styles.statusPillText,
-                    form.available ? styles.statusTextOk : styles.statusTextBad,
-                  ]}
-                >
-                  {availabilityLabel}
+            <ThemedText style={styles.profileEmail} numberOfLines={1}>
+              {user?.email ?? "—"}
+            </ThemedText>
+
+            <View style={styles.badgeRow}>
+              <View style={styles.badgePrimary}>
+                <ThemedText style={styles.badgePrimaryText}>
+                  {t("profile:verified", { defaultValue: "Verified" })}
                 </ThemedText>
               </View>
-            ) : null}
+
+              <View style={styles.badgeMuted}>
+                <ThemedText style={styles.badgeMutedText}>
+                  {t("profile:roleLabel", {
+                    role: roleLabel,
+                    defaultValue: `Role: ${roleLabel}`,
+                  })}
+                </ThemedText>
+              </View>
+            </View>
           </View>
 
           {!editing ? (
-            <View style={styles.rowBlock}>
-              <Row label={t('profile:plate')} value={(user as any)?.vehiclePlate ?? '-'} />
-              <Row label={t('profile:capacity')} value={String((user as any)?.capacity ?? '-')} />
-              <Row
-                label={t('profile:availability')}
-                value={(user as any)?.available ? t('profile:available') : t('profile:unavailable')}
-              />
-            </View>
-          ) : (
-            <View style={styles.formBlock}>
-              <TextInput
-                value={form.vehiclePlate}
-                onChangeText={(v) => setForm((s) => ({ ...s, vehiclePlate: v }))}
-                placeholder={t('profile:vehiclePlatePlaceholder')}
-                placeholderTextColor="#8b8b8b"
-                style={styles.input}
-                autoCapitalize="characters"
-              />
-              <TextInput
-                value={form.capacity}
-                onChangeText={(v) => setForm((s) => ({ ...s, capacity: v }))}
-                placeholder={t('profile:capacityPlaceholder')}
-                placeholderTextColor="#8b8b8b"
-                style={styles.input}
-                keyboardType="numeric"
-              />
-
-              <View style={styles.switchRow}>
-                <ThemedText style={styles.switchLabel}>{t('profile:availableLabel')}</ThemedText>
-                <Switch
-                  value={form.available}
-                  onValueChange={(v) => setForm((s) => ({ ...s, available: v }))}
-                />
-              </View>
-            </View>
-          )}
+            <Pressable onPress={() => setEditing(true)} style={styles.editButton} hitSlop={10}>
+              <ThemedText style={styles.editButtonText}>
+                {t("profile:edit", { defaultValue: "Edit" })}
+              </ThemedText>
+            </Pressable>
+          ) : null}
         </ThemedView>
 
-        {/* SETTINGS */}
-        <ThemedView style={styles.card}>
-          <Image source={images.key} style={styles.cardImageAlt} contentFit="contain" />
-          <ThemedText type="subtitle" style={styles.sectionTitle}>
-            {t('profile:appSettings')}
-          </ThemedText>
-
-          <View style={styles.row}>
-            <ThemedText style={styles.rowLabel}>{t('profile:pushNotifications')}</ThemedText>
-            <Switch value={pushEnabled} onValueChange={setPushEnabled} />
-          </View>
-
-          <View style={styles.row}>
-            <ThemedText style={styles.rowLabel}>{t('profile:autoAccept')}</ThemedText>
-            <Switch value={autoAccept} onValueChange={setAutoAccept} />
-          </View>
-        </ThemedView>
-
-        {/* FOOTER ACTIONS (mobile-friendly) */}
         {editing ? (
-          <View style={styles.footerActions}>
-            <Pressable onPress={cancel} style={[styles.footerBtn, styles.footerBtnGhost]}>
-              <ThemedText style={styles.footerBtnGhostText}>{t('profile:cancel')}</ThemedText>
+          <View style={styles.editActions}>
+            <Pressable onPress={cancel} style={styles.cancelButton}>
+              <ThemedText style={styles.cancelButtonText}>
+                {t("profile:cancel", { defaultValue: "Cancel" })}
+              </ThemedText>
             </Pressable>
 
-            <Pressable
-              onPress={save}
-              disabled={saving}
-              style={[styles.footerBtn, styles.footerBtnPrimary, saving && styles.disabled]}
-            >
-              <ThemedText style={styles.footerBtnPrimaryText}>
-                {saving ? t('profile:saving') : t('profile:saveChanges')}
+            <Pressable onPress={save} disabled={saving} style={[styles.saveButton, saving && styles.disabled]}>
+              <ThemedText style={styles.saveButtonText}>
+                {saving
+                  ? t("profile:saving", { defaultValue: "Saving..." })
+                  : t("profile:save", { defaultValue: "Save" })}
               </ThemedText>
             </Pressable>
           </View>
         ) : null}
+
+        <ThemedView style={styles.card}>
+          <ThemedText style={styles.sectionTitle}>
+            {t("profile:accountDetails", { defaultValue: "Account Details" })}
+          </ThemedText>
+
+          {!editing ? (
+            <View style={styles.infoBlock}>
+              <InfoRow label={t("profile:firstName", { defaultValue: "First Name" })} value={user?.name ?? "-"} />
+              <InfoRow
+                label={t("profile:lastName", { defaultValue: "Last Name" })}
+                value={(user as any)?.surname ?? "-"}
+              />
+              <InfoRow label={t("profile:phone", { defaultValue: "Phone" })} value={(user as any)?.phone ?? "-"} />
+              <InfoRow
+                label={t("profile:company", { defaultValue: "Company" })}
+                value={(user as any)?.company ?? "-"}
+              />
+            </View>
+          ) : (
+            <View style={styles.formBlock}>
+              <Field
+                label={t("profile:firstName", { defaultValue: "First Name" })}
+                value={form.firstName}
+                onChangeText={(value) => setForm((state) => ({ ...state, firstName: value }))}
+                placeholder={t("profile:firstNamePlaceholder", { defaultValue: "First name" })}
+              />
+
+              <Field
+                label={t("profile:lastName", { defaultValue: "Last Name" })}
+                value={form.lastName}
+                onChangeText={(value) => setForm((state) => ({ ...state, lastName: value }))}
+                placeholder={t("profile:lastNamePlaceholder", { defaultValue: "Last name" })}
+              />
+
+              <Field
+                label={t("profile:phone", { defaultValue: "Phone" })}
+                value={form.phone}
+                onChangeText={(value) => setForm((state) => ({ ...state, phone: value }))}
+                placeholder={t("profile:phonePlaceholder", { defaultValue: "Phone number" })}
+                keyboardType="phone-pad"
+              />
+
+              <Field
+                label={t("profile:company", { defaultValue: "Company" })}
+                value={form.company}
+                onChangeText={(value) => setForm((state) => ({ ...state, company: value }))}
+                placeholder={t("profile:companyPlaceholder", { defaultValue: "Company" })}
+              />
+            </View>
+          )}
+        </ThemedView>
+
+        <ThemedView style={styles.card}>
+          <View style={styles.sectionHeader}>
+            <ThemedText style={styles.sectionTitle}>
+              {t("profile:vehicle", { defaultValue: "Vehicle" })}
+            </ThemedText>
+
+            <View
+              style={[
+                styles.statusPill,
+                form.available ? styles.statusPillAvailable : styles.statusPillUnavailable,
+              ]}
+            >
+              <ThemedText
+                style={[
+                  styles.statusPillText,
+                  form.available ? styles.statusTextAvailable : styles.statusTextUnavailable,
+                ]}
+              >
+                {availabilityLabel}
+              </ThemedText>
+            </View>
+          </View>
+
+          {!editing ? (
+            <View style={styles.infoBlock}>
+              <InfoRow
+                label={t("profile:plate", { defaultValue: "Plate" })}
+                value={(user as any)?.vehiclePlate ?? "-"}
+              />
+              <InfoRow
+                label={t("profile:capacity", { defaultValue: "Capacity" })}
+                value={String((user as any)?.capacity ?? "-")}
+              />
+              <InfoRow
+                label={t("profile:availability", { defaultValue: "Availability" })}
+                value={(user as any)?.available ? t("profile:available", { defaultValue: "Available" }) : t("profile:unavailable", { defaultValue: "Unavailable" })}
+              />
+            </View>
+          ) : (
+            <View style={styles.formBlock}>
+              <Field
+                label={t("profile:plate", { defaultValue: "Plate" })}
+                value={form.vehiclePlate}
+                onChangeText={(value) => setForm((state) => ({ ...state, vehiclePlate: value }))}
+                placeholder={t("profile:vehiclePlatePlaceholder", { defaultValue: "Vehicle plate" })}
+              />
+
+              <Field
+                label={t("profile:capacity", { defaultValue: "Capacity" })}
+                value={form.capacity}
+                onChangeText={(value) => setForm((state) => ({ ...state, capacity: value }))}
+                placeholder={t("profile:capacityPlaceholder", { defaultValue: "Capacity" })}
+                keyboardType="numeric"
+              />
+
+              <SettingRow
+                label={t("profile:availability", { defaultValue: "Availability" })}
+                value={form.available}
+                onValueChange={(value) => setForm((state) => ({ ...state, available: value }))}
+              />
+            </View>
+          )}
+        </ThemedView>
+
+        <ThemedView style={styles.card}>
+          <ThemedText style={styles.sectionTitle}>
+            {t("profile:appSettings", { defaultValue: "App Settings" })}
+          </ThemedText>
+
+          <View style={styles.settingsBlock}>
+            <SettingRow
+              label={t("profile:pushNotifications", { defaultValue: "Push Notifications" })}
+              value={pushEnabled}
+              onValueChange={setPushEnabled}
+            />
+
+            <View style={styles.settingDivider} />
+
+            <SettingRow
+              label={t("profile:autoAcceptBookings", { defaultValue: "Auto-Accept Bookings" })}
+              value={autoAccept}
+              onValueChange={setAutoAccept}
+            />
+          </View>
+        </ThemedView>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0b0b0b' },
-  content: { padding: 18, paddingBottom: 36 },
+  container: {
+    flex: 1,
+    backgroundColor: UI.bg,
+  },
 
-  hero: {
-    borderRadius: 20,
+  content: {
+    paddingHorizontal: 18,
+    paddingTop: 16,
+  },
+
+  profileCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 22,
     borderWidth: 1,
-    borderColor: '#1a1a1a',
-    backgroundColor: '#0f0f0f',
+    borderColor: UI.borderSoft,
+    backgroundColor: UI.card,
     padding: 16,
     marginBottom: 12,
-    overflow: 'hidden',
-  },
-  heroImage: { position: 'absolute', right: -10, top: -10, width: 160, height: 160, opacity: 0.2 },
-
-  heroHeader: { flexDirection: 'row', alignItems: 'center' },
-  avatarWrap: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: '#071025',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
   },
 
-  headerText: { flex: 1 },
-  title: { color: '#fff', fontSize: 20, fontWeight: '800' },
-  email: { color: '#9aa0a6', marginTop: 4 },
-
-  heroBadges: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 8 },
-  badge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+  avatar: {
+    width: 68,
+    height: 68,
     borderRadius: 999,
-    backgroundColor: '#2b8cff20',
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: UI.primarySoft,
     borderWidth: 1,
-    borderColor: '#2b8cff40',
-    marginRight: 8,
-    marginBottom: 6,
+    borderColor: UI.primaryBorder,
+    marginRight: 14,
   },
-  badgeText: { color: '#2b8cff', fontWeight: '800', fontSize: 11 },
 
-  badgeMuted: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+  avatarText: {
+    color: UI.primary,
+    fontSize: 22,
+    fontWeight: "900",
+    letterSpacing: 0.5,
+  },
+
+  profileMain: {
+    flex: 1,
+    minWidth: 0,
+  },
+
+  profileName: {
+    color: UI.text,
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: "900",
+  },
+
+  profileEmail: {
+    color: UI.muted,
+    fontSize: 13,
+    marginTop: 4,
+  },
+
+  badgeRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 10,
+  },
+
+  badgePrimary: {
     borderRadius: 999,
-    backgroundColor: '#111',
     borderWidth: 1,
-    borderColor: '#222',
-    marginBottom: 6,
-  },
-  badgeMutedText: { color: '#9aa0a6', fontWeight: '800', fontSize: 11 },
-
-  editBtn: { paddingHorizontal: 10, paddingVertical: 6 },
-  editBtnText: { color: '#2b8cff', fontWeight: '800' },
-
-  heroActions: { flexDirection: 'row', alignItems: 'center' },
-  heroActionGhost: {
+    borderColor: UI.primaryBorder,
+    backgroundColor: UI.primarySoft,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#222',
-    backgroundColor: '#0b0b0b',
-    marginRight: 8,
   },
-  heroActionGhostText: { color: '#cfcfcf', fontWeight: '800' },
-  heroActionPrimary: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, backgroundColor: '#2b8cff' },
-  heroActionPrimaryText: { color: '#fff', fontWeight: '900' },
+
+  badgePrimaryText: {
+    color: "#88bdff",
+    fontSize: 11,
+    fontWeight: "900",
+  },
+
+  badgeMuted: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: UI.borderSoft,
+    backgroundColor: UI.cardSoft,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+
+  badgeMutedText: {
+    color: UI.muted,
+    fontSize: 11,
+    fontWeight: "800",
+  },
+
+  editButton: {
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: UI.primaryBorder,
+    backgroundColor: UI.primarySoft,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginLeft: 8,
+  },
+
+  editButtonText: {
+    color: "#8ec2ff",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+
+  editActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 12,
+  },
+
+  cancelButton: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: UI.borderSoft,
+    backgroundColor: UI.card,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  cancelButtonText: {
+    color: UI.text,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+
+  saveButton: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 14,
+    backgroundColor: UI.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  saveButtonText: {
+    color: "#ffffff",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+
+  disabled: {
+    opacity: 0.55,
+  },
 
   card: {
-    marginTop: 8,
-    padding: 14,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: UI.border,
+    backgroundColor: UI.card,
+    padding: 16,
+    marginBottom: 12,
+  },
+
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 2,
+  },
+
+  sectionTitle: {
+    color: UI.text,
+    fontSize: 16,
+    fontWeight: "900",
+    marginBottom: 14,
+  },
+
+  infoBlock: {
+    gap: 2,
+  },
+
+  infoRow: {
+    minHeight: 40,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 18,
+  },
+
+  infoLabel: {
+    color: UI.muted,
+    fontSize: 14,
+  },
+
+  infoValue: {
+    flex: 1,
+    color: UI.text,
+    fontSize: 14,
+    fontWeight: "900",
+    textAlign: "right",
+  },
+
+  formBlock: {
+    gap: 12,
+  },
+
+  fieldWrap: {
+    gap: 7,
+  },
+
+  fieldLabel: {
+    color: UI.muted,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+
+  input: {
+    minHeight: 46,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: UI.border,
+    backgroundColor: UI.cardSoft,
+    paddingHorizontal: 13,
+    color: UI.text,
+    fontSize: 14,
+  },
+
+  statusPill: {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+
+  statusPillAvailable: {
+    borderColor: "rgba(34, 197, 94, 0.28)",
+    backgroundColor: "rgba(34, 197, 94, 0.12)",
+  },
+
+  statusPillUnavailable: {
+    borderColor: "rgba(239, 68, 68, 0.28)",
+    backgroundColor: "rgba(239, 68, 68, 0.12)",
+  },
+
+  statusPillText: {
+    fontSize: 11,
+    fontWeight: "900",
+  },
+
+  statusTextAvailable: {
+    color: UI.green,
+  },
+
+  statusTextUnavailable: {
+    color: UI.red,
+  },
+
+  settingsBlock: {
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#222',
-    backgroundColor: '#0f0f0f',
-    overflow: 'hidden',
-  },
-  cardImage: { position: 'absolute', right: -10, top: -10, width: 120, height: 120, opacity: 0.12 },
-  cardImageAlt: { position: 'absolute', right: -10, bottom: -10, width: 120, height: 120, opacity: 0.1 },
-
-  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  sectionTitle: { color: '#cfcfcf', marginBottom: 8, fontWeight: '800' },
-
-  rowBlock: { marginTop: 2 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 9 },
-  rowLabel: { color: '#9aa0a6' },
-  rowValue: { color: '#fff', fontWeight: '800', maxWidth: '55%', textAlign: 'right' },
-
-  formBlock: { marginTop: 2 },
-  input: {
-    marginTop: 10,
-    backgroundColor: '#0b0b0b',
-    borderColor: '#222',
-    borderWidth: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    color: '#fff',
-    fontFamily: 'ChairoSans',
+    borderColor: UI.border,
+    backgroundColor: UI.cardSoft,
+    overflow: "hidden",
   },
 
-  switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 },
-  switchLabel: { color: '#cfcfcf', fontWeight: '700' },
+  settingRow: {
+    minHeight: 52,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 13,
+  },
 
-  statusPill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, borderWidth: 1 },
-  statusPillOk: { backgroundColor: '#2b8cff20', borderColor: '#2b8cff40' },
-  statusPillBad: { backgroundColor: '#ffffff10', borderColor: '#2a2a2a' },
-  statusPillText: { fontSize: 11, fontWeight: '900' },
-  statusTextOk: { color: '#9bbcff' },
-  statusTextBad: { color: '#cfcfcf' },
+  settingLabel: {
+    color: UI.muted,
+    fontSize: 14,
+    fontWeight: "700",
+    flex: 1,
+    paddingRight: 12,
+  },
 
-  footerActions: { marginTop: 14, flexDirection: 'row' },
-  footerBtn: { flex: 1, height: 54, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  footerBtnGhost: { borderWidth: 1, borderColor: '#222', backgroundColor: '#0f0f0f', marginRight: 10 },
-  footerBtnGhostText: { color: '#cfcfcf', fontWeight: '900' },
-  footerBtnPrimary: { backgroundColor: '#2b8cff' },
-  footerBtnPrimaryText: { color: '#fff', fontWeight: '900' },
-
-  disabled: { opacity: 0.6 },
+  settingDivider: {
+    height: 1,
+    backgroundColor: UI.border,
+    marginLeft: 13,
+  },
 });

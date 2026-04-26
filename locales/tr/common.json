@@ -6,9 +6,10 @@
   "cancel": "İptal",
   "close": "Kapat",
   "back": "Geri",
-  "bookSlot": "Slot ayarla",
+  "bookSlot": "Slot seç",
   "queueLength": "Kuyruk uzunluğu",
-  "eta": "ETA",
+  "eta": "Tahmini süre",
+  "notAvailable": "Henüz yok",
   "mins": "{{count}} dk",
   "mins_other": "{{count}} dk",
   "yes": "Evet",
@@ -31,6 +32,11 @@
   "signOutBody": "Çıkış yapmak sizi giriş ekranına döndürür.",
   "signOutFailed": "Çıkış başarısız",
   "sessionCleared": "Bu cihazdaki oturumunuz temizlenecek.",
-  "apiBaseUrlMissing": "API_BASE_URL eksik. .env içinde ayarlayıp Metro'yu yeniden başlatın.",
-  "unexpectedError": "Beklenmeyen hata."
+  "unexpectedError": "Beklenmeyen hata.",
+  "roles": {
+    "carrier": "Taşıyıcı",
+    "facility": "Tesis",
+    "admin": "Yönetici",
+    "operator": "Operatör"
+  }
 }

@@ -1,7 +1,7 @@
 {
   "title": "Merhaba, {{name}}",
   "verified": "Doğrulandı",
-  "roleLabel": "Rol: {{role}}",
+  "roleLabel": "{{role}} hesabı",
   "edit": "Düzenle",
   "cancel": "İptal",
   "save": "Kaydet",
@@ -10,7 +10,7 @@
   "savedBody": "Profiliniz güncellendi.",
   "updateFailedTitle": "Güncelleme başarısız",
   "updateFailedBody": "Bir şeyler ters gitti.",
-  "accountDetails": "Hesap Detayları",
+  "accountDetails": "Hesap bilgileri",
   "firstName": "Ad",
   "lastName": "Soyad",
   "phone": "Telefon",
@@ -28,8 +28,9 @@
   "vehiclePlatePlaceholder": "Araç plakası",
   "capacityPlaceholder": "Kapasite (ton / palet)",
   "availableLabel": "Uygun",
-  "appSettings": "Uygulama Ayarları",
+  "appSettings": "Uygulama ayarları",
   "pushNotifications": "Bildirimler",
   "autoAccept": "Rezervasyonları otomatik kabul et",
+  "autoAcceptBookings": "Rezervasyonları otomatik kabul et",
   "saveChanges": "Değişiklikleri kaydet"
 }

@@ -1,6 +1,5 @@
 import { Issue, IssueStatus } from '@/types/api';
-import { USE_MOCK_DATA } from '@/config/mock';
-import { createMockIssue, listMockIssues } from '@/mock/data';
+import { ApiError } from '@/api/errors';
 import { auth, db, storage } from '@/services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, doc, getDocs, serverTimestamp, setDoc } from 'firebase/firestore';
@@ -160,24 +159,30 @@ const uploadIssuePhoto = async (
 };
 
 const isPermissionError = (error: unknown) => {
+  const code = String((error as any)?.code ?? '').toLowerCase();
   const message = String((error as any)?.message ?? '').toLowerCase();
   return (
+    code.includes('permission-denied') ||
     message.includes('permission') ||
     message.includes('insufficient permissions') ||
     message.includes('missing or insufficient')
   );
 };
 
-export const createIssue = async (payload: CreateIssuePayload) => {
-  if (USE_MOCK_DATA) {
-    return Promise.resolve(
-      createMockIssue({
-        ...payload,
-        photoUrl: payload.photoUrl ?? payload.photo?.uri,
-      }),
-    );
+const mapCreateIssueError = (error: unknown) => {
+  if (isPermissionError(error)) {
+    return new ApiError({
+      code: 'firestore/permission-denied',
+      message:
+        'Rapor gönderilemedi. Firestore kurallarında Issue/issues koleksiyonları için staff veya Carrier_ID sahibi kullanıcıya yazma izni açık olmalı.',
+      details: error,
+    });
   }
 
+  return error;
+};
+
+export const createIssue = async (payload: CreateIssuePayload) => {
   const database = ensureDb();
   const user = await ensureUser();
   let resolvedPhotoUrl = payload.photoUrl ?? null;
@@ -220,17 +225,20 @@ export const createIssue = async (payload: CreateIssuePayload) => {
 
   try {
     return await writeToCollection(PRIMARY_ISSUES_COLLECTION);
-  } catch (error) {
-    if (isPermissionError(error)) {
-      return writeToCollection(LEGACY_ISSUES_COLLECTION);
+  } catch (primaryError) {
+    if (!isPermissionError(primaryError)) {
+      throw primaryError;
     }
-    throw error;
+
+    try {
+      return await writeToCollection(LEGACY_ISSUES_COLLECTION);
+    } catch (legacyError) {
+      throw mapCreateIssueError(legacyError);
+    }
   }
 };
 
 export const fetchIssues = async (params?: ListIssuesParams) => {
-  if (USE_MOCK_DATA) return Promise.resolve(listMockIssues(params));
-
   const database = ensureDb();
   const readCollectionSafely = async (name: string) => {
     try {

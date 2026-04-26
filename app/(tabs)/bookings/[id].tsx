@@ -1,57 +1,114 @@
-import React, { useMemo } from "react";
+// app/(tabs)/bookings/[id].tsx
+import { Ionicons } from "@expo/vector-icons";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Stack, useLocalSearchParams, useRouter, type Href } from "expo-router";
+import React, { memo, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import {
+  ActivityIndicator,
   Alert,
   Platform,
   Pressable,
+  SafeAreaView,
   ScrollView,
   StyleSheet,
+  Text,
   View,
 } from "react-native";
-import { Stack, useLocalSearchParams, useRouter, type Href } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
-import { Image } from "expo-image";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useTranslation } from "react-i18next";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { ScreenState } from "@/components/screen-state";
-import { ThemedText } from "@/components/themed-text";
-import { ThemedView } from "@/components/themed-view";
-
-import { fetchBooking, cancelBooking } from "@/api/bookings";
+import { cancelBooking, fetchBooking } from "@/api/bookings";
+import { mapApiError } from "@/api/errors";
 import { fetchFacilities } from "@/api/facilities";
-import { fetchStationRecommendation } from "@/api/recommendations";
-import { fetchStations } from "@/api/stations";
 import { fetchIssues } from "@/api/issues";
 import { fetchQueueEntries } from "@/api/queue-entries";
-import { mapApiError } from "@/api/errors";
+import { fetchStationRecommendation } from "@/api/recommendations";
+import { fetchStations } from "@/api/stations";
 import { queryKeys } from "@/query/keys";
-import { images } from "@/constants/images";
-import { Ui } from "@/constants/theme";
 
-const isApiBaseUrlError = (err: unknown) => {
-  const msg = err instanceof Error ? err.message : String(err ?? "");
-  return msg.toLowerCase().includes("api_base_url");
+type StatusTone = "neutral" | "warning" | "success" | "danger";
+
+type DetailRowItem = {
+  id: string;
+  label: string;
+  value: string;
+  helper?: string;
 };
 
-const tone = (status?: string) => {
+const ROUTES = {
+  list: "/(tabs)/bookings" as const,
+  newBooking: "/(tabs)/bookings/new" as const,
+  detail: (id: string) =>
+    ({
+      pathname: "/(tabs)/bookings/[id]",
+      params: { id },
+    }) as const,
+};
+
+const COLORS = {
+  bg: "#07080a",
+  card: "#0b0f16",
+  cardRaised: "#0f141d",
+  cardSoft: "#071326",
+  line: "#1a2435",
+  lineSoft: "#121a28",
+  text: "#f8fafc",
+  textSoft: "#b6bfcc",
+  muted: "#7f8795",
+  blue: "#2b8cff",
+  blueText: "#9bbcff",
+  blueSoft: "#2b8cff18",
+  green: "#22c55e",
+  greenSoft: "#22c55e18",
+  yellow: "#ffd166",
+  yellowSoft: "#ffd16618",
+  red: "#ef4444",
+  redSoft: "#ef444418",
+};
+
+const STATUS_COLORS: Record<StatusTone, { bg: string; border: string; text: string }> = {
+  neutral: { bg: COLORS.blueSoft, border: "#2b8cff40", text: COLORS.blueText },
+  warning: { bg: COLORS.yellowSoft, border: "#ffd16640", text: COLORS.yellow },
+  success: { bg: COLORS.greenSoft, border: "#22c55e40", text: COLORS.green },
+  danger: { bg: COLORS.redSoft, border: "#ef444440", text: COLORS.red },
+};
+
+const tone = (status?: string): StatusTone => {
   switch ((status ?? "").toLowerCase()) {
     case "confirmed":
     case "arrived":
-      return { fg: Ui.color.success, bg: Ui.color.successSoft, bd: Ui.color.successBorder };
+    case "servicing":
+    case "completed":
+      return "success";
     case "pending":
-      return { fg: Ui.color.warning, bg: Ui.color.warningSoft, bd: Ui.color.warningBorder };
+      return "warning";
     case "cancelled":
-      return { fg: Ui.color.danger, bg: Ui.color.dangerSoft, bd: Ui.color.dangerBorder };
+      return "danger";
     default:
-      return { fg: Ui.color.primary, bg: Ui.color.primarySoft, bd: Ui.color.primaryBorder };
+      return "neutral";
   }
 };
 
-const formatWhen = (iso?: string) => {
-  if (!iso) return "-";
+const normalizeText = (value: unknown, fallback: string) => {
+  if (typeof value !== "string") return fallback;
+
+  const trimmed = value.trim();
+  if (!trimmed) return fallback;
+
+  const lowered = trimmed.toLowerCase();
+  if (lowered === "unknown" || lowered === "undefined" || lowered === "null") {
+    return fallback;
+  }
+
+  return trimmed;
+};
+
+const formatWhen = (iso: string | undefined, locale: string | undefined, fallback: string) => {
+  if (!iso) return fallback;
+
   const d = new Date(iso);
-  return d.toLocaleString(undefined, {
+  if (Number.isNaN(d.getTime())) return fallback;
+
+  return d.toLocaleString(locale || undefined, {
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -67,28 +124,263 @@ const formatBookingId = (id?: string) => {
   if (!raw) return "----";
 
   const digits = raw.replace(/\D/g, "");
-  if (digits) {
-    return digits.slice(-4).padStart(4, "0");
-  }
+  if (digits) return digits.slice(-4).padStart(4, "0");
 
   const clean = raw.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-  if (!clean) return "----";
-  return clean.slice(-6);
+  return clean ? clean.slice(-6) : "----";
 };
 
-const formatIssueStatus = (status?: string) => {
-  const raw = String(status ?? "").toLowerCase();
-  if (raw === "resolved") return "SOLVED";
-  if (raw === "in_progress") return "IN PROGRESS";
-  return "UNSOLVED";
+const statusLabel = (status: unknown) => {
+  const raw = String(status ?? "pending").trim();
+  return raw ? raw.replace(/_/g, " ").toUpperCase() : "PENDING";
 };
+
+const Header = memo(function Header(props: { title: string; onBack: () => void }) {
+  const { title, onBack } = props;
+
+  return (
+    <View style={styles.header}>
+      <Pressable
+        onPress={onBack}
+        style={({ pressed }) => [styles.iconButton, pressed ? styles.pressed : null]}
+        hitSlop={10}
+        accessibilityRole="button"
+        accessibilityLabel="Go back"
+      >
+        <Ionicons name="chevron-back" size={22} color={COLORS.text} />
+      </Pressable>
+
+      <Text style={styles.headerTitle}>{title}</Text>
+
+      <View style={styles.headerSpacer} />
+    </View>
+  );
+});
+
+const StatusPill = memo(function StatusPill(props: { label: string; toneName: StatusTone }) {
+  const palette = STATUS_COLORS[props.toneName];
+
+  return (
+    <View style={[styles.statusPill, { backgroundColor: palette.bg, borderColor: palette.border }]}>
+      <Text style={[styles.statusPillText, { color: palette.text }]} numberOfLines={1}>
+        {props.label}
+      </Text>
+    </View>
+  );
+});
+
+const SummaryCard = memo(function SummaryCard(props: {
+  station: string;
+  facility: string;
+  arrival: string;
+  bookingId: string;
+  status: string;
+  statusTone: StatusTone;
+  labels: {
+    eyebrow: string;
+    arrival: string;
+    reference: string;
+  };
+}) {
+  const { station, facility, arrival, bookingId, status, statusTone, labels } = props;
+
+  return (
+    <View style={styles.summaryCard}>
+      <View style={styles.summaryGlow} />
+
+      <View style={styles.summaryTop}>
+        <View style={styles.summaryTitleWrap}>
+          <Text style={styles.summaryEyebrow}>{labels.eyebrow}</Text>
+          <Text style={styles.summaryStation} numberOfLines={2}>
+            {station}
+          </Text>
+          <Text style={styles.summaryFacility} numberOfLines={1}>
+            {facility}
+          </Text>
+        </View>
+
+        <StatusPill label={status} toneName={statusTone} />
+      </View>
+
+      <View style={styles.summaryMetaGrid}>
+        <View style={styles.summaryMetaItem}>
+          <Text style={styles.metaLabel}>{labels.arrival}</Text>
+          <Text style={styles.metaValue} numberOfLines={2}>
+            {arrival}
+          </Text>
+        </View>
+
+        <View style={styles.summaryMetaItem}>
+          <Text style={styles.metaLabel}>{labels.reference}</Text>
+          <Text style={styles.metaValue}>#{bookingId}</Text>
+        </View>
+      </View>
+    </View>
+  );
+});
+
+const DetailListCard = memo(function DetailListCard(props: {
+  title: string;
+  caption?: string;
+  rows: DetailRowItem[];
+}) {
+  const { title, caption, rows } = props;
+
+  return (
+    <View style={styles.card}>
+      <Text style={styles.cardTitle}>{title}</Text>
+      {caption ? <Text style={styles.cardCaption}>{caption}</Text> : null}
+
+      <View style={styles.detailList}>
+        {rows.map((row, index) => (
+          <React.Fragment key={row.id}>
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>{row.label}</Text>
+              <Text style={styles.detailValue}>{row.value}</Text>
+              {row.helper ? <Text style={styles.detailHelper}>{row.helper}</Text> : null}
+            </View>
+
+            {index < rows.length - 1 ? <View style={styles.divider} /> : null}
+          </React.Fragment>
+        ))}
+      </View>
+    </View>
+  );
+});
+
+const TimelineCard = memo(function TimelineCard(props: { title: string; steps: string[] }) {
+  const { title, steps } = props;
+
+  return (
+    <View style={styles.card}>
+      <Text style={styles.cardTitle}>{title}</Text>
+
+      <View style={styles.timelineList}>
+        {steps.map((step, index) => (
+          <View key={`${step}-${index}`} style={styles.timelineRow}>
+            <View style={styles.timelineDot} />
+            <Text style={styles.timelineText}>{step}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+});
+
+const ActionsCard = memo(function ActionsCard(props: {
+  canManage: boolean;
+  bookingStatus: string;
+  cancelPending: boolean;
+  onReschedule: () => void;
+  onCancel: () => void;
+  labels: {
+    title: string;
+    reschedule: string;
+    cancel: string;
+    cancelling: string;
+    cancelled: string;
+    completed: string;
+  };
+}) {
+  const { canManage, bookingStatus, cancelPending, onReschedule, onCancel, labels } = props;
+
+  return (
+    <View style={styles.card}>
+      <Text style={styles.cardTitle}>{labels.title}</Text>
+
+      {canManage ? (
+        <View style={styles.actionStack}>
+          <Pressable
+            onPress={onReschedule}
+            accessibilityRole="button"
+            accessibilityLabel={labels.reschedule}
+            style={({ pressed }) => [styles.actionButton, styles.actionSecondary, pressed ? styles.pressed : null]}
+          >
+            <Text style={styles.actionSecondaryText}>{labels.reschedule}</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={onCancel}
+            disabled={cancelPending}
+            accessibilityRole="button"
+            accessibilityLabel={labels.cancel}
+            style={({ pressed }) => [
+              styles.actionButton,
+              styles.actionDanger,
+              cancelPending ? styles.actionDisabled : null,
+              pressed && !cancelPending ? styles.pressed : null,
+            ]}
+          >
+            <Text style={styles.actionDangerText}>{cancelPending ? labels.cancelling : labels.cancel}</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <Text style={styles.cardCaption}>
+          {bookingStatus === "cancelled" ? labels.cancelled : labels.completed}
+        </Text>
+      )}
+    </View>
+  );
+});
+
+const StateView = memo(function StateView(props: {
+  title: string;
+  body: string;
+  mode?: "loading" | "error";
+  primaryLabel?: string;
+  secondaryLabel?: string;
+  onPrimary?: () => void;
+  onSecondary?: () => void;
+}) {
+  const { title, body, mode = "error", primaryLabel, secondaryLabel, onPrimary, onSecondary } = props;
+
+  return (
+    <View style={styles.stateWrap}>
+      <View style={styles.stateCard}>
+        <View style={[styles.stateIcon, mode === "error" ? styles.stateIconError : null]}>
+          {mode === "loading" ? (
+            <ActivityIndicator color={COLORS.blue} />
+          ) : (
+            <Ionicons name="warning-outline" size={24} color={COLORS.red} />
+          )}
+        </View>
+
+        <Text style={styles.stateTitle}>{title}</Text>
+        <Text style={styles.stateBody}>{body}</Text>
+
+        {primaryLabel || secondaryLabel ? (
+          <View style={styles.stateActions}>
+            {secondaryLabel && onSecondary ? (
+              <Pressable
+                onPress={onSecondary}
+                style={({ pressed }) => [styles.stateButton, pressed ? styles.pressed : null]}
+              >
+                <Text style={styles.stateButtonText}>{secondaryLabel}</Text>
+              </Pressable>
+            ) : null}
+
+            {primaryLabel && onPrimary ? (
+              <Pressable
+                onPress={onPrimary}
+                style={({ pressed }) => [styles.stateButton, styles.stateButtonPrimary, pressed ? styles.pressed : null]}
+              >
+                <Text style={styles.stateButtonPrimaryText}>{primaryLabel}</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
+    </View>
+  );
+});
 
 export default function BookingDetailScreen() {
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const router = useRouter();
   const qc = useQueryClient();
-  const { t } = useTranslation(["booking", "common"]);
-  const insets = useSafeAreaInsets();
+  const { t, i18n } = useTranslation(["booking", "common", "issue"]);
+  const locale = i18n.resolvedLanguage || i18n.language || undefined;
+  const notScheduledLabel = t("booking:notScheduled", { defaultValue: "Not scheduled" });
 
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
   const bookingId = id ? String(id) : "";
@@ -111,6 +403,29 @@ export default function BookingDetailScreen() {
     staleTime: 60_000,
   });
 
+  const facilities = useMemo(() => (Array.isArray(facilitiesRaw) ? facilitiesRaw : []), [facilitiesRaw]);
+  const stations = useMemo(() => (Array.isArray(stationsRaw) ? stationsRaw : []), [stationsRaw]);
+
+  const facilityById = useMemo(() => new Map(facilities.map((facility) => [facility.id, facility])), [facilities]);
+  const stationById = useMemo(() => new Map(stations.map((station) => [station.id, station])), [stations]);
+
+  const booking = useMemo(() => {
+    if (!data) return null;
+
+    const station = stationById.get(data.stationId ?? "");
+    const resolvedFacilityId = data.facilityId ?? station?.facilityId;
+
+    return {
+      ...data,
+      facilityId: resolvedFacilityId,
+      facilityName: data.facilityName ?? facilityById.get(resolvedFacilityId ?? "")?.name ?? station?.facilityId,
+      stationName: data.stationName ?? station?.name,
+    };
+  }, [data, facilityById, stationById]);
+
+  const resolvedFacilityId = booking?.facilityId;
+  const arrivalOrSlot = String(booking?.arrivalTime ?? booking?.slot ?? "");
+
   const cancelMut = useMutation({
     mutationFn: (bid: string) => cancelBooking(bid),
     onSuccess: async () => {
@@ -118,59 +433,41 @@ export default function BookingDetailScreen() {
         qc.invalidateQueries({ queryKey: queryKeys.booking(bookingId) }),
         qc.invalidateQueries({ queryKey: queryKeys.bookings() }),
       ]);
-      Alert.alert(t("booking:bookingCancelledTitle"), t("booking:bookingCancelledBody"));
-      router.replace("/(tabs)/bookings" as Href);
+
+      Alert.alert(
+        t("booking:bookingCancelledTitle", { defaultValue: "Booking cancelled" }),
+        t("booking:bookingCancelledBody", { defaultValue: "The booking has been cancelled." }),
+      );
+
+      router.replace(ROUTES.list as Href);
     },
     onError: (e) => {
       const err = mapApiError(e);
-      Alert.alert(t("booking:cancelFailed"), err.message);
+      Alert.alert(t("booking:cancelFailed", { defaultValue: "Cancel failed" }), err.message);
     },
   });
 
   const confirmCancel = () => {
+    const title = t("booking:cancelBooking", { defaultValue: "Cancel booking" });
+    const message = t("booking:cancelBookingConfirm", {
+      defaultValue: "Are you sure you want to cancel this booking?",
+    });
+
     if (Platform.OS === "web" && typeof window !== "undefined") {
-      const confirmed = window.confirm(t("booking:cancelBookingConfirm"));
-      if (confirmed && bookingId) {
-        cancelMut.mutate(bookingId);
-      }
+      const confirmed = window.confirm(message);
+      if (confirmed && bookingId) cancelMut.mutate(bookingId);
       return;
     }
 
-    Alert.alert(t("booking:cancelBooking"), t("booking:cancelBookingConfirm"), [
-      { text: t("common:no"), style: "cancel" },
+    Alert.alert(title, message, [
+      { text: t("common:no", { defaultValue: "No" }), style: "cancel" },
       {
-        text: t("booking:cancelBookingConfirmCta"),
+        text: t("booking:cancelBookingConfirmCta", { defaultValue: "Cancel booking" }),
         style: "destructive",
         onPress: () => bookingId && cancelMut.mutate(bookingId),
       },
     ]);
   };
-
-  const facilities = useMemo(() => (Array.isArray(facilitiesRaw) ? facilitiesRaw : []), [facilitiesRaw]);
-  const stations = useMemo(() => (Array.isArray(stationsRaw) ? stationsRaw : []), [stationsRaw]);
-  const facilityById = useMemo(() => new Map(facilities.map((facility) => [facility.id, facility])), [facilities]);
-  const stationById = useMemo(() => new Map(stations.map((station) => [station.id, station])), [stations]);
-
-  const booking = useMemo(() => {
-    if (!data) return null;
-    const station = stationById.get(data.stationId ?? "");
-    const resolvedFacilityId = data.facilityId ?? station?.facilityId;
-
-    return {
-      ...data,
-      facilityId: resolvedFacilityId,
-      facilityName:
-        data.facilityName ?? facilityById.get(resolvedFacilityId ?? "")?.name ?? station?.facilityId,
-      stationName: data.stationName ?? station?.name,
-    };
-  }, [data, facilityById, stationById]);
-
-  const resolvedFacilityId = booking?.facilityId;
-  const badge = tone(booking?.status);
-  const bookingShortId = formatBookingId(String(booking?.id ?? bookingId));
-  const arrivalOrSlot = String(booking?.arrivalTime ?? booking?.slot ?? "");
-  const bookingStatus = String(booking?.status ?? "").toLowerCase();
-  const canManageBooking = bookingStatus !== "cancelled" && bookingStatus !== "completed";
 
   const { data: recoData } = useQuery({
     enabled: Boolean(booking && resolvedFacilityId && arrivalOrSlot),
@@ -197,307 +494,265 @@ export default function BookingDetailScreen() {
     staleTime: 15_000,
   });
 
-  const issues = Array.isArray(issuesRaw) ? issuesRaw : [];
-  const queueEntries = Array.isArray(queueEntriesRaw) ? queueEntriesRaw : [];
-  const latestQueueEntry = queueEntries
-    .slice()
-    .sort((a: any, b: any) => {
-      const ta = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
-      const tb = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
-      return tb - ta;
-    })[0];
+  const issues = useMemo(() => (Array.isArray(issuesRaw) ? issuesRaw : []), [issuesRaw]);
+
+  const latestQueueEntry = useMemo(
+    () =>
+      (Array.isArray(queueEntriesRaw) ? queueEntriesRaw : [])
+        .slice()
+        .sort((a: any, b: any) => {
+          const ta = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const tb = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return tb - ta;
+        })[0],
+    [queueEntriesRaw],
+  );
 
   if (!bookingId) {
     return (
-      <SafeAreaView style={styles.container} edges={["top"]}>
+      <SafeAreaView style={styles.container}>
         <Stack.Screen options={{ headerShown: false }} />
-        <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.iconBtn} hitSlop={10}>
-            <Ionicons name="chevron-back" size={22} color="#fff" />
-          </Pressable>
-          <ThemedText style={styles.headerTitle}>{t("booking:bookingDetails")}</ThemedText>
-          <View style={{ width: 42 }} />
-        </View>
+        <Header title={t("booking:bookingDetails", { defaultValue: "Booking details" })} onBack={() => router.back()} />
 
-        <ScreenState
-          mode="error"
-          title={t("booking:missingBookingId")}
-          message={t("booking:missingBookingIdBody")}
-          art={images.alarm}
-          style={styles.stateCard}
-          footer={
-            <Pressable
-              onPress={() => router.replace("/(tabs)/bookings" as Href)}
-              style={[styles.stateBtn, styles.stateBtnPrimary, { marginTop: 12 }]}
-            >
-              <ThemedText style={styles.stateBtnText}>{t("booking:backToBookings")}</ThemedText>
-            </Pressable>
-          }
+        <StateView
+          title={t("booking:missingBookingId", { defaultValue: "Missing booking ID" })}
+          body={t("booking:missingBookingIdBody", {
+            defaultValue: "This booking could not be opened because the ID is missing.",
+          })}
+          primaryLabel={t("booking:backToBookings", { defaultValue: "Back to bookings" })}
+          onPrimary={() => router.replace(ROUTES.list as Href)}
         />
       </SafeAreaView>
     );
   }
 
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <Header title={t("booking:bookingDetails", { defaultValue: "Booking details" })} onBack={() => router.back()} />
+
+        <StateView
+          mode="loading"
+          title={t("common:loading", { defaultValue: "Loading" })}
+          body={t("booking:loadingBooking", { defaultValue: "Loading booking details..." })}
+        />
+      </SafeAreaView>
+    );
+  }
+
+  if (error || !booking) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <Header title={t("booking:bookingDetails", { defaultValue: "Booking details" })} onBack={() => router.back()} />
+
+        <StateView
+          title={t("booking:unableToLoadBooking", { defaultValue: "Unable to load booking" })}
+          body={
+            error instanceof Error
+              ? error.message
+              : t("common:unexpectedError", { defaultValue: "Unexpected error" })
+          }
+          secondaryLabel={t("common:retry", { defaultValue: "Retry" })}
+          onSecondary={() => refetch()}
+          primaryLabel={t("booking:backToBookings", { defaultValue: "Back to bookings" })}
+          onPrimary={() => router.replace(ROUTES.list as Href)}
+        />
+      </SafeAreaView>
+    );
+  }
+
+  const bookingStatus = String(booking.status ?? "pending").toLowerCase();
+  const canManageBooking = bookingStatus !== "cancelled" && bookingStatus !== "completed";
+  const bookingShortId = formatBookingId(String(booking.id ?? bookingId));
+  const badgeTone = tone(booking.status);
+
+  const stationLabel = normalizeText(
+    booking.stationName ?? booking.stationId,
+    t("booking:stationPending", { defaultValue: "Station pending" }),
+  );
+
+  const facilityLabel = normalizeText(
+    booking.facilityName ?? booking.facilityId,
+    t("booking:facilityPending", { defaultValue: "Awaiting facility details" }),
+  );
+
+  const arrivalLabel = formatWhen(booking.arrivalTime, locale, notScheduledLabel);
+  const slotLabel = formatSlot(booking.slot ?? undefined);
+  const etaLabel =
+    typeof booking.etaMinutes === "number"
+      ? t("booking:etaValue", {
+        count: booking.etaMinutes,
+        defaultValue: `${booking.etaMinutes} min`,
+      })
+      : t("booking:etaUnknown", { defaultValue: "Not available yet" });
+
+  const recommendedStationId = String(
+    booking.recommendedStationId ?? recoData?.suggestedStationId ?? "",
+  ).trim();
+
+  const liveRows: DetailRowItem[] = [
+    {
+      id: "queue",
+      label: t("booking:queueStatus", { defaultValue: "Queue status" }),
+      value: latestQueueEntry
+        ? normalizeText(latestQueueEntry.status, t("booking:queueEntryActive", { defaultValue: "Queue entry active" }))
+        : t("booking:notJoinedQueue", { defaultValue: "Not joined yet" }),
+      helper: latestQueueEntry?.createdAt
+        ? t("booking:queueEntryCreatedAt", {
+          time: formatWhen(latestQueueEntry.createdAt, locale, notScheduledLabel),
+          defaultValue: `Updated: ${formatWhen(latestQueueEntry.createdAt, locale, notScheduledLabel)}`,
+        })
+        : t("booking:noQueueEntry", { defaultValue: "No queue entry found for this booking." }),
+    },
+    {
+      id: "recommendation",
+      label: t("booking:recommendation", { defaultValue: "Recommendation" }),
+      value: recommendedStationId
+        ? t("booking:recommendedStation", {
+          station: recommendedStationId,
+          defaultValue: `Recommended: ${recommendedStationId}`,
+        })
+        : t("booking:noRecommendation", { defaultValue: "Not available yet" }),
+      helper:
+        typeof booking.recommendedWaitMin === "number"
+          ? t("booking:estWait", {
+            count: booking.recommendedWaitMin,
+            defaultValue: `Est. wait: ${booking.recommendedWaitMin} min`,
+          })
+          : undefined,
+    },
+    {
+      id: "issues",
+      label: t("issue:recentIssues", { defaultValue: "Issues" }),
+      value: issues.length
+        ? t("issue:issueCount", {
+          count: issues.length,
+          defaultValue: `${issues.length} issue${issues.length > 1 ? "s" : ""}`,
+        })
+        : t("issue:noIssues", { defaultValue: "No issues yet" }),
+      helper: issues.length
+        ? `${t(`issue:${String(issues[0]?.category ?? "other")}`, {
+          defaultValue: String(issues[0]?.category ?? t("issue:title", { defaultValue: "Issue" })),
+        })} - ${t(`issue:status.${String(issues[0]?.status ?? "open").toLowerCase()}`, {
+          defaultValue: t("issue:status.open", { defaultValue: "Open" }),
+        })}`
+        : undefined,
+    },
+  ];
+
+  const detailRows: DetailRowItem[] = [
+    {
+      id: "arrival",
+      label: t("booking:arrivalTime", { defaultValue: "Arrival time" }),
+      value: arrivalLabel,
+    },
+    {
+      id: "eta",
+      label: t("booking:estimatedArrival", { defaultValue: "Estimated arrival" }),
+      value: etaLabel,
+    },
+    {
+      id: "slot",
+      label: t("booking:slot", { defaultValue: "Slot" }),
+      value: slotLabel ?? t("booking:slotPending", { defaultValue: "No slot label" }),
+    },
+    {
+      id: "facility",
+      label: t("booking:facility", { defaultValue: "Facility" }),
+      value: facilityLabel,
+    },
+    {
+      id: "station",
+      label: t("booking:station", { defaultValue: "Station" }),
+      value: stationLabel,
+    },
+  ];
+
   return (
-    <SafeAreaView style={styles.container} edges={["top"]}>
+    <SafeAreaView style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.iconBtn} hitSlop={10}>
-          <Ionicons name="chevron-back" size={22} color="#fff" />
-        </Pressable>
-        <ThemedText style={styles.headerTitle}>{t("booking:bookingDetails")}</ThemedText>
-        <View style={{ width: 42 }} />
-      </View>
+      <Header title={t("booking:bookingDetails", { defaultValue: "Booking details" })} onBack={() => router.back()} />
 
-      {isLoading ? (
-        <ScreenState
-          mode="loading"
-          title={t("common:loading")}
-          message={t("booking:loadingBooking", { defaultValue: "Loading booking details..." })}
-          style={styles.stateCard}
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <SummaryCard
+          station={stationLabel}
+          facility={facilityLabel}
+          arrival={arrivalLabel}
+          bookingId={bookingShortId}
+          status={t(`booking:status.${bookingStatus}`, {
+            defaultValue: statusLabel(booking.status),
+          })}
+          statusTone={badgeTone}
+          labels={{
+            eyebrow: t("booking:summaryEyebrow", { defaultValue: "Booking" }),
+            arrival: t("booking:arrival", { defaultValue: "Arrival" }),
+            reference: t("booking:reference", { defaultValue: "Reference" }),
+          }}
         />
-      ) : error || !booking ? (
-        <ScreenState
-          mode="error"
-          title={t("booking:unableToLoadBooking")}
-          message={
-            isApiBaseUrlError(error)
-              ? t("common:apiBaseUrlMissing")
-              : error instanceof Error
-                ? error.message
-                : t("common:unexpectedError")
-          }
-          art={images.alarm}
-          style={styles.stateCard}
-          footer={
-            <View style={{ flexDirection: "row", marginTop: 12 }}>
-              <Pressable onPress={() => refetch()} style={styles.stateBtn}>
-                <ThemedText style={styles.stateBtnText}>{t("common:retry")}</ThemedText>
-              </Pressable>
-              <View style={{ width: 10 }} />
-              <Pressable
-                onPress={() => router.replace("/(tabs)/bookings" as Href)}
-                style={[styles.stateBtn, styles.stateBtnPrimary]}
-              >
-                <ThemedText style={styles.stateBtnText}>{t("booking:backToBookings")}</ThemedText>
-              </Pressable>
-            </View>
-          }
+
+        <DetailListCard
+          title={t("booking:details", { defaultValue: "Details" })}
+          caption={t("booking:detailsCaption", {
+            defaultValue: "Arrival, facility, and station information for this booking.",
+          })}
+          rows={detailRows}
         />
-      ) : (
-        <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: Ui.layout.tabBarOffset + insets.bottom }]} showsVerticalScrollIndicator={false}>
-          <ThemedView style={styles.hero}>
-            <Image source={images.priceTag} style={styles.heroArt} contentFit="contain" />
-            <ThemedText style={styles.heroTitle}>{t("booking:bookingSnapshot")}</ThemedText>
-            <ThemedText style={styles.heroBody}>{t("booking:bookingSnapshotBody")}</ThemedText>
-          </ThemedView>
 
-          <ThemedView style={styles.card}>
-            <Image source={images.pin} style={styles.cardArt} contentFit="contain" />
+        <DetailListCard
+          title={t("booking:liveStatus", { defaultValue: "Live status" })}
+          caption={t("booking:liveStatusCaption", {
+            defaultValue: "Queue, recommendation, and issue state for this booking.",
+          })}
+          rows={liveRows}
+        />
 
-            <View style={styles.rowTop}>
-              <View style={{ flex: 1, paddingRight: 12 }}>
-                <ThemedText style={styles.station}>
-                  {booking.stationName ?? booking.stationId ?? t("booking:station")}
-                </ThemedText>
-                <ThemedText style={styles.facility}>
-                  {booking.facilityName ?? booking.facilityId ?? t("booking:facility")}
-                </ThemedText>
-              </View>
+        <TimelineCard
+          title={t("booking:arrivalTimeline", { defaultValue: "Arrival timeline" })}
+          steps={[
+            t("booking:timelineStep1", {
+              defaultValue: "Gate entry opens 20 minutes before your slot.",
+            }),
+            t("booking:timelineStep2", {
+              defaultValue: "Present documents at the checkpoint.",
+            }),
+            t("booking:timelineStep3", {
+              defaultValue: "Proceed to dock after queue clearance.",
+            }),
+          ]}
+        />
 
-              <View style={[styles.badge, { backgroundColor: badge.bg, borderColor: badge.bd }]}>
-                <ThemedText style={[styles.badgeText, { color: badge.fg }]}>
-                  {t(`booking:status.${String(booking.status ?? "pending").toLowerCase()}`, {
-                    defaultValue: String(booking.status ?? "pending").toUpperCase(),
-                  })}
-                </ThemedText>
-              </View>
-            </View>
-
-            <View style={styles.hr} />
-
-            <View style={styles.infoRow}>
-              <Ionicons name="calendar-outline" size={18} color="#8b8b8b" />
-              <ThemedText style={styles.infoText}>{formatWhen(booking.arrivalTime)}</ThemedText>
-            </View>
-
-            {formatSlot(booking.slot) ? (
-              <View style={styles.infoRow}>
-                <Ionicons name="time-outline" size={18} color="#8b8b8b" />
-                <ThemedText style={styles.infoText}>{String(formatSlot(booking.slot))}</ThemedText>
-              </View>
-            ) : null}
-
-            <View style={styles.infoRow}>
-              <Ionicons name="time-outline" size={18} color="#8b8b8b" />
-              <ThemedText style={styles.infoText}>
-                {typeof booking.etaMinutes === "number"
-                  ? t("booking:etaValue", { count: booking.etaMinutes })
-                  : t("booking:etaUnknown")}
-              </ThemedText>
-            </View>
-
-            <View style={styles.infoRow}>
-              <Ionicons name="information-circle-outline" size={18} color="#8b8b8b" />
-              <ThemedText style={styles.infoText}>
-                {t("common:bookingId", { id: bookingShortId })}
-              </ThemedText>
-            </View>
-          </ThemedView>
-
-          <ThemedView style={styles.card}>
-            <Image source={images.statistics} style={styles.cardArt} contentFit="contain" />
-            <ThemedText style={styles.timelineTitle}>
-              {t("booking:recommendation", { defaultValue: "Recommendation" })}
-            </ThemedText>
-
-            <View style={styles.hr} />
-
-            <ThemedText style={styles.stepText}>
-              {booking?.recommendedStationId
-                ? t("booking:recommendedStation", {
-                    defaultValue: `Recommended: ${booking.recommendedStationId}`,
-                  })
-                : recoData?.suggestedStationId
-                  ? t("booking:recommendedStation", {
-                      defaultValue: `Recommended: ${recoData.suggestedStationId}`,
-                    })
-                  : t("booking:etaUnknown", { defaultValue: "No recommendation yet." })}
-            </ThemedText>
-
-            {typeof booking?.recommendedWaitMin === "number" ? (
-              <ThemedText style={[styles.stepText, { marginTop: 8 }]}>
-                {t("booking:estWait", {
-                  count: booking.recommendedWaitMin,
-                  defaultValue: `Est. wait: ${booking.recommendedWaitMin} min`,
-                })}
-              </ThemedText>
-            ) : null}
-          </ThemedView>
-
-          <ThemedView style={styles.card}>
-            <Image source={images.clock} style={styles.cardArt} contentFit="contain" />
-            <ThemedText style={styles.timelineTitle}>
-              {t("booking:queueStatus", { defaultValue: "Queue status" })}
-            </ThemedText>
-
-            <View style={styles.hr} />
-
-            {latestQueueEntry ? (
-              <>
-                <ThemedText style={styles.stepText}>
-                  {t("booking:queueEntryStatus", {
-                    defaultValue: `Status: ${String(latestQueueEntry.status ?? "-")}`,
-                  })}
-                </ThemedText>
-                <ThemedText style={[styles.stepText, { marginTop: 8 }]}>
-                  {t("booking:queueEntryCreatedAt", {
-                    defaultValue: `Updated: ${formatWhen(latestQueueEntry.createdAt)}`,
-                  })}
-                </ThemedText>
-              </>
-            ) : (
-              <ThemedText style={styles.stepText}>
-                {t("booking:noQueueEntry", { defaultValue: "No queue entry found for this booking." })}
-              </ThemedText>
-            )}
-          </ThemedView>
-
-          <ThemedView style={styles.card}>
-            <Image source={images.alarm} style={styles.cardArt} contentFit="contain" />
-            <ThemedText style={styles.timelineTitle}>
-              {t("issue:recentIssues", { defaultValue: "Issues" })}
-            </ThemedText>
-
-            <View style={styles.hr} />
-
-            {issues.length ? (
-              issues
-                .slice(0, 3)
-                .map((issue: any) => (
-                  <View key={String(issue.id)} style={{ marginTop: 10 }}>
-                    <ThemedText style={styles.stepText}>
-                      {String(issue.category ?? "Issue")} • {formatIssueStatus(issue.status)}
-                    </ThemedText>
-                    <ThemedText style={[styles.stepText, { color: "#9aa0a6", marginTop: 4 }]}>
-                      {String(issue.description ?? "")}
-                    </ThemedText>
-                  </View>
-                ))
-            ) : (
-              <ThemedText style={styles.stepText}>
-                {t("issue:noIssues", { defaultValue: "No issues yet." })}
-              </ThemedText>
-            )}
-          </ThemedView>
-
-          <ThemedView style={styles.timeline}>
-            <Image source={images.clock} style={styles.timelineArt} contentFit="contain" />
-            <ThemedText style={styles.timelineTitle}>{t("booking:arrivalTimeline")}</ThemedText>
-
-            <View style={styles.step}>
-              <View style={styles.dot} />
-              <ThemedText style={styles.stepText}>{t("booking:timelineStep1")}</ThemedText>
-            </View>
-            <View style={styles.step}>
-              <View style={styles.dot} />
-              <ThemedText style={styles.stepText}>{t("booking:timelineStep2")}</ThemedText>
-            </View>
-            <View style={styles.step}>
-              <View style={styles.dot} />
-              <ThemedText style={styles.stepText}>{t("booking:timelineStep3")}</ThemedText>
-            </View>
-          </ThemedView>
-
-          <ThemedView style={styles.actions}>
-            <ThemedText style={styles.actionsTitle}>{t("common:actions")}</ThemedText>
-
-            {canManageBooking ? (
-              <>
-                <Pressable
-                  onPress={() => router.push("/(tabs)/bookings/new" as Href)}
-                  style={[styles.actionBtn, styles.actionSecondary]}
-                >
-                  <ThemedText style={styles.actionText}>{t("booking:reschedule")}</ThemedText>
-                </Pressable>
-
-                <Pressable
-                  onPress={confirmCancel}
-                  disabled={cancelMut.isPending}
-                  style={[
-                    styles.actionBtn,
-                    styles.actionDanger,
-                    cancelMut.isPending && { opacity: 0.7 },
-                  ]}
-                >
-                  <ThemedText style={styles.actionText}>
-                    {cancelMut.isPending ? t("booking:cancelBookingLoading") : t("booking:cancelBooking")}
-                  </ThemedText>
-                </Pressable>
-              </>
-            ) : (
-              <ThemedText style={styles.actionsMuted}>
-                {bookingStatus === "cancelled"
-                  ? t("booking:bookingAlreadyCancelled", {
-                      defaultValue: "This booking has already been cancelled.",
-                    })
-                  : t("booking:bookingAlreadyCompleted", {
-                      defaultValue: "This booking is already completed.",
-                    })}
-              </ThemedText>
-            )}
-          </ThemedView>
-
-          <View style={{ height: 24 }} />
-        </ScrollView>
-      )}
+        <ActionsCard
+          canManage={canManageBooking}
+          bookingStatus={bookingStatus}
+          cancelPending={cancelMut.isPending}
+          onReschedule={() => router.push(ROUTES.newBooking as Href)}
+          onCancel={confirmCancel}
+          labels={{
+            title: t("common:actions", { defaultValue: "Actions" }),
+            reschedule: t("booking:reschedule", { defaultValue: "Reschedule" }),
+            cancel: t("booking:cancelBooking", { defaultValue: "Cancel booking" }),
+            cancelling: t("booking:cancelBookingLoading", { defaultValue: "Cancelling..." }),
+            cancelled: t("booking:bookingAlreadyCancelled", {
+              defaultValue: "This booking has already been cancelled.",
+            }),
+            completed: t("booking:bookingAlreadyCompleted", {
+              defaultValue: "This booking is already completed.",
+            }),
+          }}
+        />
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Ui.color.bg },
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.bg,
+  },
 
   header: {
     flexDirection: "row",
@@ -506,106 +761,330 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 12,
   },
-  iconBtn: {
+  iconButton: {
     width: 42,
     height: 42,
-    borderRadius: Ui.radius.pill,
-    backgroundColor: Ui.color.surfaceAlt,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: Ui.color.border,
+    borderColor: COLORS.line,
+    backgroundColor: COLORS.card,
     alignItems: "center",
     justifyContent: "center",
   },
-  headerTitle: { flex: 1, textAlign: "center", color: "#fff", fontSize: 18, fontWeight: "900" },
-
-  scroll: { paddingHorizontal: 18, paddingBottom: 24 },
-
-  hero: {
-    marginTop: 8,
-    padding: 16,
-    borderRadius: Ui.radius.lg,
-    borderWidth: 1,
-    borderColor: Ui.color.border,
-    backgroundColor: Ui.color.surface,
-    overflow: "hidden",
+  headerTitle: {
+    flex: 1,
+    minWidth: 0,
+    color: COLORS.text,
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: "700",
+    textAlign: "center",
+    paddingHorizontal: 12,
   },
-  heroArt: { position: "absolute", right: -12, top: -12, width: 160, height: 160, opacity: 0.14 },
-  heroTitle: { color: "#fff", fontSize: 18, fontWeight: "900" },
-  heroBody: { color: Ui.color.textMuted, marginTop: 8, fontSize: 13, maxWidth: "82%" },
+  headerSpacer: {
+    width: 42,
+  },
+  pressed: {
+    opacity: 0.92,
+    transform: [{ scale: 0.99 }],
+  },
+
+  scroll: {
+    paddingHorizontal: 16,
+    paddingBottom: 104,
+  },
+
+  summaryCard: {
+    position: "relative",
+    overflow: "hidden",
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+    backgroundColor: COLORS.card,
+    padding: 16,
+  },
+  summaryGlow: {
+    position: "absolute",
+    right: -70,
+    top: -96,
+    width: 180,
+    height: 180,
+    borderRadius: 999,
+    backgroundColor: "#2b8cff1c",
+  },
+  summaryTop: {
+    position: "relative",
+    zIndex: 2,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+  },
+  summaryTitleWrap: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 12,
+  },
+  summaryEyebrow: {
+    color: COLORS.blueText,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "600",
+    letterSpacing: 0.8,
+    marginBottom: 9,
+  },
+  summaryStation: {
+    color: COLORS.text,
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: "700",
+    letterSpacing: -0.2,
+  },
+  summaryFacility: {
+    color: COLORS.textSoft,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 5,
+  },
+  statusPill: {
+    maxWidth: 152,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  statusPillText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+  },
+  summaryMetaGrid: {
+    flexDirection: "row",
+    marginHorizontal: -5,
+    marginTop: 16,
+  },
+  summaryMetaItem: {
+    flex: 1,
+    minHeight: 62,
+    marginHorizontal: 5,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: COLORS.lineSoft,
+    backgroundColor: "#070b1288",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    justifyContent: "center",
+  },
+  metaLabel: {
+    color: COLORS.muted,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "500",
+  },
+  metaValue: {
+    color: COLORS.text,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "600",
+    marginTop: 3,
+  },
 
   card: {
-    marginTop: 12,
-    padding: 16,
-    borderRadius: Ui.radius.md,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: Ui.color.border,
-    backgroundColor: Ui.color.surface,
+    borderColor: COLORS.line,
+    backgroundColor: COLORS.card,
+    padding: 16,
+    marginTop: 14,
+  },
+  cardTitle: {
+    color: COLORS.text,
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: "700",
+    letterSpacing: -0.15,
+  },
+  cardCaption: {
+    color: COLORS.textSoft,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 5,
+    marginBottom: 13,
+  },
+  detailList: {
     overflow: "hidden",
-  },
-  cardArt: { position: "absolute", right: -12, top: -12, width: 150, height: 150, opacity: 0.10 },
-
-  rowTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  station: { color: "#fff", fontSize: 18, fontWeight: "900" },
-  facility: { color: Ui.color.textMuted, marginTop: 6, fontWeight: "700" },
-
-  badge: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, borderWidth: 1 },
-  badgeText: { fontSize: 11, fontWeight: "900", letterSpacing: 1 },
-
-  hr: { height: 1, backgroundColor: Ui.color.border, marginVertical: 12 },
-
-  infoRow: { flexDirection: "row", alignItems: "center", marginTop: 6 },
-  infoText: { color: Ui.color.textSoft, fontWeight: "700", marginLeft: 10 },
-
-  timeline: {
-    marginTop: 12,
-    padding: 16,
-    borderRadius: Ui.radius.md,
-    borderWidth: 1,
-    borderColor: Ui.color.border,
-    backgroundColor: Ui.color.surface,
-    overflow: "hidden",
-  },
-  timelineArt: { position: "absolute", right: -12, top: -12, width: 150, height: 150, opacity: 0.10 },
-  timelineTitle: { color: "#fff", fontWeight: "900", marginBottom: 10 },
-  step: { flexDirection: "row", alignItems: "flex-start", marginTop: 8 },
-  dot: { width: 8, height: 8, borderRadius: 999, backgroundColor: "#2b8cff", marginTop: 6, marginRight: 10 },
-  stepText: { color: Ui.color.textSoft, flex: 1, fontSize: 13, fontWeight: "600" },
-
-  actions: {
-    marginTop: 12,
-    padding: 16,
-    borderRadius: Ui.radius.md,
-    borderWidth: 1,
-    borderColor: Ui.color.border,
-    backgroundColor: Ui.color.surface,
-  },
-  actionsTitle: { color: "#fff", fontWeight: "900", marginBottom: 10 },
-  actionsMuted: { color: Ui.color.textMuted, fontSize: 13, lineHeight: 18 },
-
-  actionBtn: {
-    height: 52,
     borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
     borderWidth: 1,
+    borderColor: COLORS.lineSoft,
+    backgroundColor: "#070b1288",
   },
-  actionText: { color: "#fff", fontWeight: "900" },
-  actionSecondary: { backgroundColor: "#2b8cff22", borderColor: "#2b8cff44" },
-  actionDanger: { marginTop: 10, backgroundColor: "#b91c1c", borderColor: "#ef444422" },
-
-  stateCard: {
-    margin: 18,
-  },
-  stateBtn: {
-    height: 46,
+  detailRow: {
+    minHeight: 58,
     paddingHorizontal: 14,
-    borderRadius: Ui.radius.sm,
-    borderWidth: 1,
-    borderColor: Ui.color.primaryBorder,
-    backgroundColor: Ui.color.primarySoft,
-    alignItems: "center",
+    paddingVertical: 10,
     justifyContent: "center",
   },
-  stateBtnPrimary: { backgroundColor: Ui.color.primary, borderColor: Ui.color.primary },
-  stateBtnText: { color: "#fff", fontWeight: "900" },
+  detailLabel: {
+    color: COLORS.muted,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "500",
+  },
+  detailValue: {
+    color: COLORS.text,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "600",
+    marginTop: 3,
+  },
+  detailHelper: {
+    color: COLORS.textSoft,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 2,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: COLORS.lineSoft,
+  },
+
+  timelineList: {
+    marginTop: 12,
+  },
+  timelineRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginTop: 9,
+  },
+  timelineDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: COLORS.blue,
+    marginTop: 6,
+    marginRight: 10,
+  },
+  timelineText: {
+    flex: 1,
+    minWidth: 0,
+    color: COLORS.textSoft,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "500",
+  },
+
+  actionStack: {
+    marginTop: 14,
+  },
+  actionButton: {
+    minHeight: 50,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 14,
+  },
+  actionSecondary: {
+    borderColor: "#2b8cff40",
+    backgroundColor: COLORS.blueSoft,
+  },
+  actionSecondaryText: {
+    color: COLORS.blueText,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "700",
+  },
+  actionDanger: {
+    borderColor: "#ef444440",
+    backgroundColor: "#b91c1c",
+    marginTop: 10,
+  },
+  actionDangerText: {
+    color: COLORS.text,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "700",
+  },
+  actionDisabled: {
+    opacity: 0.65,
+  },
+
+  stateWrap: {
+    flex: 1,
+    justifyContent: "center",
+    padding: 16,
+    paddingBottom: 72,
+  },
+  stateCard: {
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+    backgroundColor: COLORS.card,
+    padding: 18,
+    alignItems: "center",
+  },
+  stateIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#2b8cff40",
+    backgroundColor: COLORS.blueSoft,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  stateIconError: {
+    borderColor: "#ef444440",
+    backgroundColor: COLORS.redSoft,
+  },
+  stateTitle: {
+    color: COLORS.text,
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  stateBody: {
+    color: COLORS.textSoft,
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: "center",
+    marginTop: 6,
+  },
+  stateActions: {
+    width: "100%",
+    flexDirection: "row",
+    marginTop: 16,
+  },
+  stateButton: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+    backgroundColor: COLORS.cardRaised,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    marginHorizontal: 4,
+  },
+  stateButtonPrimary: {
+    borderColor: COLORS.blue,
+    backgroundColor: COLORS.blue,
+  },
+  stateButtonText: {
+    color: COLORS.blueText,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  stateButtonPrimaryText: {
+    color: COLORS.text,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "700",
+    textAlign: "center",
+  },
 });

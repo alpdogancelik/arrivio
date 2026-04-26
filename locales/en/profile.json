@@ -31,5 +31,6 @@
   "appSettings": "App Settings",
   "pushNotifications": "Push Notifications",
   "autoAccept": "Auto-Accept Bookings",
+  "autoAcceptBookings": "Auto-Accept Bookings",
   "saveChanges": "Save changes"
 }

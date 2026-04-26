@@ -1,117 +1,36 @@
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { useRouter } from 'expo-router';
-import { Image } from 'expo-image';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Linking, Platform, Pressable, StyleSheet, View } from 'react-native';
+// app/(tabs)/map/index.native.tsx
+import { Ionicons } from '@expo/vector-icons';
+import { Stack, useRouter, type Href } from 'expo-router';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
-import { useQuery } from '@tanstack/react-query';
 
-import { images } from '@/constants/images';
-import { fetchBookings } from '@/api/bookings';
-import { fetchFacilities } from '@/api/facilities';
-import { fetchStations } from '@/api/stations';
-import { queryKeys } from '@/query/keys';
+import {
+  buildDirectionsUrl,
+  FacilityPin,
+  getFocusedRegion,
+  STATUS_COLORS,
+  useMapData,
+  type Availability,
+} from './map-data';
 
-type Availability = 'open' | 'limited' | 'closed';
-
-type FacilityPin = {
-  id: string;
-  name: string;
-  latitude: number;
-  longitude: number;
-  availability: Availability;
-  queueLength: number;
-  etaMin: number | null;
-  lastUpdatedMinAgo: number;
+const COLORS = {
+  bg: '#07080a',
+  card: '#0b0f16',
+  cardRaised: '#0f141d',
+  line: '#1a2435',
+  lineSoft: '#121a28',
+  text: '#f8fafc',
+  textSoft: '#b6bfcc',
+  muted: '#7f8795',
+  blue: '#2b8cff',
+  blueText: '#9bbcff',
+  blueSoft: '#2b8cff18',
 };
 
-const STATIC_FACILITIES: FacilityPin[] = [
-  {
-    id: 'fac-mg-01',
-    name: 'Famagusta Port Entry (Customs)',
-    latitude: 35.1136,
-    longitude: 33.9496,
-    availability: 'limited',
-    queueLength: 21,
-    etaMin: 34,
-    lastUpdatedMinAgo: 3,
-  },
-  {
-    id: 'fac-lk-01',
-    name: 'Nicosia Logistics Park (Haspolat)',
-    latitude: 35.1859,
-    longitude: 33.3619,
-    availability: 'open',
-    queueLength: 9,
-    etaMin: 14,
-    lastUpdatedMinAgo: 2,
-  },
-  {
-    id: 'fac-gn-01',
-    name: 'Kyrenia Free Zone Dock',
-    latitude: 35.3422,
-    longitude: 33.3212,
-    availability: 'open',
-    queueLength: 6,
-    etaMin: 10,
-    lastUpdatedMinAgo: 6,
-  },
-  {
-    id: 'fac-er-01',
-    name: 'Ercan Cargo Terminal',
-    latitude: 35.1567,
-    longitude: 33.5039,
-    availability: 'limited',
-    queueLength: 13,
-    etaMin: 22,
-    lastUpdatedMinAgo: 4,
-  },
-  {
-    id: 'fac-gz-01',
-    name: 'Guzelyurt Cold Chain Yard',
-    latitude: 35.2027,
-    longitude: 32.9933,
-    availability: 'open',
-    queueLength: 4,
-    etaMin: 8,
-    lastUpdatedMinAgo: 9,
-  },
-  {
-    id: 'fac-is-01',
-    name: 'Iskele–Bogaz Weighbridge',
-    latitude: 35.2797,
-    longitude: 33.9469,
-    availability: 'closed',
-    queueLength: 0,
-    etaMin: null,
-    lastUpdatedMinAgo: 15,
-  },
-];
-
-const STATUS_COLORS: Record<Availability, string> = {
-  open: '#22c55e',
-  limited: '#f59e0b',
-  closed: '#ef4444',
-};
-
-const normalizeAvailability = (value?: string): Availability => {
-  const raw = String(value ?? '').toLowerCase();
-  if (!raw) return 'open';
-  if (raw.includes('close') || raw.includes('inactive') || raw.includes('blocked')) return 'closed';
-  if (raw.includes('limit') || raw.includes('busy') || raw.includes('partial')) return 'limited';
-  return 'open';
-};
-
-const getEtaMinutes = (arrivalTime?: string) => {
-  if (!arrivalTime) return undefined;
-  const arrival = new Date(arrivalTime);
-  if (Number.isNaN(arrival.getTime())) return undefined;
-  const diff = Math.round((arrival.getTime() - Date.now()) / 60000);
-  return diff > 0 ? diff : 0;
-};
+const BOOKING_ROUTE = '/(tabs)/bookings/new' as const;
 
 const darkMapStyle = [
   { elementType: 'geometry', stylers: [{ color: '#0b0b0b' }] },
@@ -123,251 +42,346 @@ const darkMapStyle = [
   { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0a1620' }] },
 ];
 
-const DEFAULT_REGION = {
-  latitude: 35.1859,
-  longitude: 33.3619,
-  latitudeDelta: 1.2,
-  longitudeDelta: 1.2,
+const availabilityFallbackLabel: Record<Availability, string> = {
+  open: 'Open',
+  limited: 'Limited',
+  closed: 'Closed',
 };
 
-function openDirections(facility: FacilityPin) {
-  const { latitude, longitude, name } = facility;
-
-  // Android'de "geo:" bazen uygulamaya göre değişebiliyor; en stabil olanlardan biri:
-  const url = Platform.select({
-    ios: `http://maps.apple.com/?daddr=${latitude},${longitude}`,
-    android: `google.navigation:q=${latitude},${longitude}(${encodeURIComponent(name)})`,
-    default: `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`,
-  });
-
-  if (!url) return;
-  Linking.openURL(url).catch(() => undefined);
+function openDirections(pin: FacilityPin) {
+  Linking.openURL(buildDirectionsUrl(pin)).catch(() => undefined);
 }
+
+const HeaderOverlay = memo(function HeaderOverlay(props: {
+  title: string;
+  subtitle: string;
+  updatedLabel: string;
+  loading: boolean;
+  syncingLabel: string;
+  liveLabel: string;
+  resetLabel: string;
+  refreshLabel: string;
+  onReset: () => void;
+  onRefresh: () => void;
+}) {
+  const {
+    title,
+    subtitle,
+    updatedLabel,
+    loading,
+    syncingLabel,
+    liveLabel,
+    resetLabel,
+    refreshLabel,
+    onReset,
+    onRefresh,
+  } = props;
+
+  return (
+    <View style={styles.headerCard}>
+      <View style={styles.headerGlow} />
+
+      <View style={styles.headerTop}>
+        <View style={styles.headerCopy}>
+          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.subtitle}>{subtitle}</Text>
+        </View>
+
+        <View style={styles.liveBadge}>
+          <View style={styles.liveDot} />
+          <Text style={styles.liveText}>{loading ? syncingLabel : liveLabel}</Text>
+        </View>
+      </View>
+
+      <Text style={styles.updatedText}>{updatedLabel}</Text>
+
+      <View style={styles.headerActions}>
+        <Pressable
+          onPress={onReset}
+          accessibilityRole="button"
+          accessibilityLabel={resetLabel}
+          style={({ pressed }) => [styles.headerAction, pressed ? styles.pressed : null]}
+        >
+          <Ionicons name="locate-outline" size={17} color={COLORS.blueText} />
+          <Text style={styles.headerActionText}>{resetLabel}</Text>
+        </Pressable>
+
+        <Pressable
+          onPress={onRefresh}
+          accessibilityRole="button"
+          accessibilityLabel={refreshLabel}
+          style={({ pressed }) => [styles.headerAction, pressed ? styles.pressed : null]}
+        >
+          {loading ? (
+            <ActivityIndicator color={COLORS.blueText} />
+          ) : (
+            <Ionicons name="refresh" size={17} color={COLORS.blueText} />
+          )}
+          <Text style={styles.headerActionText}>{refreshLabel}</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+});
+
+const StatusStrip = memo(function StatusStrip(props: {
+  counts: Record<Availability, number>;
+  labels: Record<Availability, string>;
+}) {
+  const { counts, labels } = props;
+
+  return (
+    <View style={styles.statusStrip}>
+      {(Object.keys(labels) as Availability[]).map((key) => (
+        <View key={key} style={styles.statusChip}>
+          <View style={[styles.statusDot, { backgroundColor: STATUS_COLORS[key] }]} />
+          <Text style={styles.statusLabel} numberOfLines={1}>
+            {labels[key]}
+          </Text>
+          <Text style={styles.statusCount}>{counts[key]}</Text>
+        </View>
+      ))}
+    </View>
+  );
+});
+
+const MapMarker = memo(function MapMarker(props: {
+  pin: FacilityPin;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const { pin, selected, onPress } = props;
+  const color = STATUS_COLORS[pin.availability];
+
+  return (
+    <Marker
+      coordinate={{ latitude: pin.latitude, longitude: pin.longitude }}
+      onPress={onPress}
+      tracksViewChanges={false}
+      accessibilityLabel={`Station pin: ${pin.shortName}`}
+    >
+      <View style={styles.markerWrap}>
+        <View style={[styles.markerLabel, selected ? styles.markerLabelSelected : null]}>
+          <Text style={styles.markerLabelText} numberOfLines={1}>
+            {pin.shortName}
+          </Text>
+        </View>
+
+        <View style={styles.markerPin}>
+          <View
+            style={[
+              styles.markerRing,
+              { borderColor: `${color}${selected ? 'dd' : '66'}` },
+              selected ? styles.markerRingSelected : null,
+            ]}
+          />
+          <View
+            style={[
+              styles.markerDot,
+              { backgroundColor: color },
+              selected ? styles.markerDotSelected : null,
+            ]}
+          />
+        </View>
+      </View>
+    </Marker>
+  );
+});
+
+const BottomSheet = memo(function BottomSheet(props: {
+  selected: FacilityPin;
+  pins: FacilityPin[];
+  statusLabel: string;
+  queueLabel: string;
+  etaLabel: string;
+  trucksLabel: string;
+  minsLabel: string;
+  unavailableLabel: string;
+  bookLabel: string;
+  directionsLabel: string;
+  onBook: () => void;
+  onDirections: () => void;
+  onSelectPin: (pin: FacilityPin) => void;
+}) {
+  const {
+    selected,
+    pins,
+    statusLabel,
+    queueLabel,
+    etaLabel,
+    trucksLabel,
+    minsLabel,
+    unavailableLabel,
+    bookLabel,
+    directionsLabel,
+    onBook,
+    onDirections,
+    onSelectPin,
+  } = props;
+
+  const statusColor = STATUS_COLORS[selected.availability];
+
+  return (
+    <View style={styles.sheet}>
+      <View style={styles.sheetHandle} />
+
+      <View style={styles.sheetHeader}>
+        <View style={styles.sheetTitleWrap}>
+          <Text style={styles.sheetTitle} numberOfLines={1}>
+            {selected.name}
+          </Text>
+          <Text style={styles.sheetSub} numberOfLines={1}>
+            {selected.facilityName ?? selected.source}
+          </Text>
+        </View>
+
+        <View style={[styles.availabilityBadge, { borderColor: `${statusColor}55`, backgroundColor: `${statusColor}22` }]}>
+          <Text style={[styles.availabilityBadgeText, { color: statusColor }]} numberOfLines={1}>
+            {statusLabel}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.metricsCard}>
+        <View style={styles.metric}>
+          <Text style={styles.metricLabel}>{queueLabel}</Text>
+          <Text style={styles.metricValue}>{trucksLabel}</Text>
+        </View>
+
+        <View style={styles.metricDivider} />
+
+        <View style={styles.metric}>
+          <Text style={styles.metricLabel}>{etaLabel}</Text>
+          <Text style={styles.metricValue}>
+            {selected.etaMin == null ? unavailableLabel : minsLabel}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.actionsRow}>
+        <Pressable
+          onPress={onBook}
+          accessibilityRole="button"
+          accessibilityLabel={bookLabel}
+          style={({ pressed }) => [styles.primaryButton, pressed ? styles.pressed : null]}
+        >
+          <Text style={styles.primaryButtonText}>{bookLabel}</Text>
+        </Pressable>
+
+        <Pressable
+          onPress={onDirections}
+          accessibilityRole="button"
+          accessibilityLabel={directionsLabel}
+          style={({ pressed }) => [styles.secondaryButton, pressed ? styles.pressed : null]}
+        >
+          <Text style={styles.secondaryButtonText}>{directionsLabel}</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.pinList}>
+        {pins.map((pin) => {
+          const active = pin.id === selected.id;
+          const color = STATUS_COLORS[pin.availability];
+
+          return (
+            <Pressable
+              key={pin.id}
+              onPress={() => onSelectPin(pin)}
+              accessibilityRole="button"
+              accessibilityLabel={pin.shortName}
+              style={({ pressed }) => [
+                styles.pinChip,
+                active ? styles.pinChipActive : null,
+                { borderColor: active ? `${color}66` : COLORS.line },
+                pressed ? styles.pressed : null,
+              ]}
+            >
+              <View style={[styles.pinChipDot, { backgroundColor: color }]} />
+              <Text style={styles.pinChipText} numberOfLines={1}>
+                {pin.shortName}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+});
 
 export default function MapScreen() {
   const { t } = useTranslation(['map', 'common']);
   const router = useRouter();
   const insets = useSafeAreaInsets();
-
-  const { data: facilitiesRaw } = useQuery({
-    queryKey: queryKeys.facilities(),
-    queryFn: fetchFacilities,
-    staleTime: 60_000,
-  });
-
-  const { data: stationsRaw } = useQuery({
-    queryKey: queryKeys.stations(),
-    queryFn: () => fetchStations(),
-    staleTime: 60_000,
-  });
-
-  const { data: bookingsRaw } = useQuery({
-    queryKey: queryKeys.bookings(),
-    queryFn: () => fetchBookings(),
-    staleTime: 30_000,
-  });
-
-  const facilities = useMemo(() => (Array.isArray(facilitiesRaw) ? facilitiesRaw : []), [facilitiesRaw]);
-  const stations = useMemo(() => (Array.isArray(stationsRaw) ? stationsRaw : []), [stationsRaw]);
-  const bookings = useMemo(() => (Array.isArray(bookingsRaw) ? bookingsRaw : []), [bookingsRaw]);
-
-  const activeBookings = useMemo(
-    () =>
-      bookings.filter((booking: any) => {
-        const status = String(booking?.status ?? '').toLowerCase();
-        return status !== 'cancelled' && status !== 'completed';
-      }),
-    [bookings],
-  );
-
-  const bookingsByFacility = useMemo(() => {
-    const grouped = new Map<string, any[]>();
-    for (const booking of activeBookings) {
-      const facilityId = booking?.facilityId;
-      if (!facilityId) continue;
-      if (!grouped.has(facilityId)) grouped.set(facilityId, []);
-      grouped.get(facilityId)?.push(booking);
-    }
-    return grouped;
-  }, [activeBookings]);
-
-  const bookingsByStation = useMemo(() => {
-    const grouped = new Map<string, any[]>();
-    for (const booking of activeBookings) {
-      const stationId = booking?.stationId;
-      if (!stationId) continue;
-      if (!grouped.has(stationId)) grouped.set(stationId, []);
-      grouped.get(stationId)?.push(booking);
-    }
-    return grouped;
-  }, [activeBookings]);
-
-  const facilityPins = useMemo(() => {
-    if (!facilities.length) return [];
-
-    const stationCoordByFacility = new Map<string, { latitude: number; longitude: number }>();
-    for (const station of stations) {
-      if (!station?.facilityId || typeof station?.latitude !== 'number' || typeof station?.longitude !== 'number') {
-        continue;
-      }
-      if (!stationCoordByFacility.has(station.facilityId)) {
-        stationCoordByFacility.set(station.facilityId, {
-          latitude: station.latitude,
-          longitude: station.longitude,
-        });
-      }
-    }
-
-    return facilities
-      .map((facility) => {
-        const coords = stationCoordByFacility.get(facility.id);
-        const latitude = typeof facility.latitude === 'number' ? facility.latitude : coords?.latitude;
-        const longitude = typeof facility.longitude === 'number' ? facility.longitude : coords?.longitude;
-        if (typeof latitude !== 'number' || typeof longitude !== 'number') return null;
-
-        const facilityBookings = bookingsByFacility.get(facility.id) ?? [];
-        const etaValues = facilityBookings
-          .map((booking: any) => booking?.etaMinutes ?? getEtaMinutes(booking?.arrivalTime))
-          .filter((value: number | undefined) => typeof value === 'number');
-        const avgEta = etaValues.length
-          ? Math.max(0, Math.round(etaValues.reduce((sum, v) => sum + v, 0) / etaValues.length))
-          : null;
-
-        const latestUpdate = facilityBookings
-          .map((booking: any) => booking?.updatedAt ?? booking?.arrivalTime)
-          .map((value: string | undefined) => (value ? new Date(value).getTime() : 0))
-          .reduce((max, value) => Math.max(max, value), 0);
-        const lastUpdatedMinAgo = latestUpdate
-          ? Math.max(1, Math.round((Date.now() - latestUpdate) / 60000))
-          : 0;
-
-        return {
-          id: facility.id,
-          name: facility.name ?? facility.id,
-          latitude,
-          longitude,
-          availability: normalizeAvailability(facility.status),
-          queueLength: facilityBookings.length,
-          etaMin: avgEta,
-          lastUpdatedMinAgo,
-        } as FacilityPin;
-      })
-      .filter(Boolean) as FacilityPin[];
-  }, [bookingsByFacility, facilities, stations]);
-
-  const stationPins = useMemo(() => {
-    if (!stations.length) return [];
-
-    return stations
-      .map((station) => {
-        if (typeof station.latitude !== 'number' || typeof station.longitude !== 'number') return null;
-        const stationBookings = bookingsByStation.get(station.id) ?? [];
-        const etaValues = stationBookings
-          .map((booking: any) => booking?.etaMinutes ?? getEtaMinutes(booking?.arrivalTime))
-          .filter((value: number | undefined) => typeof value === 'number');
-        const avgEta = etaValues.length
-          ? Math.max(0, Math.round(etaValues.reduce((sum, v) => sum + v, 0) / etaValues.length))
-          : null;
-
-        const latestUpdate = stationBookings
-          .map((booking: any) => booking?.updatedAt ?? booking?.arrivalTime)
-          .map((value: string | undefined) => (value ? new Date(value).getTime() : 0))
-          .reduce((max, value) => Math.max(max, value), 0);
-        const lastUpdatedMinAgo = latestUpdate
-          ? Math.max(1, Math.round((Date.now() - latestUpdate) / 60000))
-          : 0;
-
-        return {
-          id: station.id,
-          name: station.name ?? station.id,
-          latitude: station.latitude,
-          longitude: station.longitude,
-          availability: normalizeAvailability(station.status),
-          queueLength: stationBookings.length,
-          etaMin: avgEta,
-          lastUpdatedMinAgo,
-        } as FacilityPin;
-      })
-      .filter(Boolean) as FacilityPin[];
-  }, [bookingsByStation, stations]);
-
-  const pins = useMemo(() => {
-    const source = facilityPins.length ? facilityPins : stationPins.length ? stationPins : STATIC_FACILITIES;
-    return source.map((pin, index) => ({
-      ...pin,
-      name: `Station${index + 1}`,
-    }));
-  }, [facilityPins, stationPins]);
-
   const mapRef = useRef<MapView | null>(null);
+
+  const { pins, counts, initialRegion, isLoading, isRefetching, refetchAll } = useMapData();
+
   const [selectedId, setSelectedId] = useState<string | undefined>(pins[0]?.id);
 
   useEffect(() => {
     if (!pins.length) return;
-    if (!selectedId || !pins.find((pin) => pin.id === selectedId)) {
+
+    if (!selectedId || !pins.some((pin) => pin.id === selectedId)) {
       setSelectedId(pins[0]?.id);
     }
   }, [pins, selectedId]);
 
-  const selected = useMemo(() => pins.find((f) => f.id === selectedId) ?? null, [pins, selectedId]);
+  const selected = useMemo(
+    () => pins.find((pin) => pin.id === selectedId) ?? pins[0] ?? null,
+    [pins, selectedId],
+  );
 
-  const statusMeta = useMemo(
+  const statusLabels = useMemo<Record<Availability, string>>(
     () => ({
-      open: { label: t('map:open'), color: STATUS_COLORS.open },
-      limited: { label: t('map:limited'), color: STATUS_COLORS.limited },
-      closed: { label: t('map:closed'), color: STATUS_COLORS.closed },
+      open: t('map:open', { defaultValue: availabilityFallbackLabel.open }),
+      limited: t('map:limited', { defaultValue: availabilityFallbackLabel.limited }),
+      closed: t('map:closed', { defaultValue: availabilityFallbackLabel.closed }),
     }),
     [t],
   );
 
-  const counts = useMemo(() => {
-    return pins.reduce(
-      (acc, f) => {
-        acc[f.availability] += 1;
-        return acc;
-      },
-      { open: 0, limited: 0, closed: 0 } as Record<Availability, number>,
-    );
-  }, [pins]);
-
-  // KKTC odaklı zoom (Türkiye delta'sını düşürdük)
-  const initialRegion = useMemo(() => {
-    if (!pins.length) return DEFAULT_REGION;
-    const lat = pins.reduce((sum, f) => sum + f.latitude, 0) / pins.length;
-    const lng = pins.reduce((sum, f) => sum + f.longitude, 0) / pins.length;
-    return { latitude: lat, longitude: lng, latitudeDelta: 1.2, longitudeDelta: 1.2 };
-  }, [pins]);
-
-  const focusFacility = useCallback((facility: FacilityPin) => {
-    setSelectedId(facility.id);
-    mapRef.current?.animateToRegion(
-      {
-        latitude: facility.latitude,
-        longitude: facility.longitude,
-        latitudeDelta: 0.55,
-        longitudeDelta: 0.55,
-      },
-      320,
-    );
-  }, []);
-
-  // Facility id'yi booking'e taşıyalım (KKTC istasyon filtreleme için şart)
-  const handleBook = useCallback(() => {
-    if (!selected) return;
-    router.push({
-      pathname: '/bookings/new',
-      params: { facilityId: selected.id },
-    } as any);
-  }, [router, selected]);
-
   const lastUpdatedLabel = useMemo(() => {
     const minAgo = selected?.lastUpdatedMinAgo ?? 0;
-    if (minAgo <= 1) return t('common:updatedJustNow');
-    return t('common:updatedMinutesAgo', { count: minAgo });
+    if (minAgo <= 1) {
+      return t('common:updatedJustNow', { defaultValue: 'Updated just now' });
+    }
+
+    return t('common:updatedMinutesAgo', {
+      count: minAgo,
+      defaultValue: `Updated ${minAgo} min ago`,
+    });
   }, [selected?.lastUpdatedMinAgo, t]);
+
+  const focusPin = useCallback((pin: FacilityPin) => {
+    setSelectedId(pin.id);
+    mapRef.current?.animateToRegion(getFocusedRegion(pin), 320);
+  }, []);
+
+  const resetMap = useCallback(() => {
+    mapRef.current?.animateToRegion(initialRegion, 360);
+  }, [initialRegion]);
+
+  const handleBook = useCallback(() => {
+    if (!selected) return;
+
+    router.push({
+      pathname: BOOKING_ROUTE,
+      params: {
+        facilityId: selected.facilityId ?? selected.id,
+        stationId: selected.stationId ?? selected.id,
+      },
+    } as Href);
+  }, [router, selected]);
+
+  const handleDirections = useCallback(() => {
+    if (!selected) return;
+    openDirections(selected);
+  }, [selected]);
 
   return (
     <View style={styles.container}>
+      <Stack.Screen options={{ headerShown: false }} />
+
       <MapView
         ref={(ref) => {
           mapRef.current = ref;
@@ -379,193 +393,65 @@ export default function MapScreen() {
         showsCompass
         rotateEnabled={false}
         mapPadding={{
-          top: insets.top + 160,
+          top: insets.top + 166,
           right: 16,
-          bottom: insets.bottom + 210,
+          bottom: insets.bottom + 294,
           left: 16,
         }}
       >
-        {pins.map((facility, index) => {
-          const meta = statusMeta[facility.availability];
-          const isSelected = facility.id === selectedId;
-          const markerLabel = `Station${index + 1}`;
-
-          return (
-            <Marker
-              key={facility.id}
-              coordinate={{ latitude: facility.latitude, longitude: facility.longitude }}
-              onPress={() => focusFacility(facility)}
-              tracksViewChanges={false}
-              accessibilityLabel={`Facility pin: ${facility.name}`}
-            >
-              <View style={styles.markerWrap}>
-                <View style={styles.markerLabelWrap}>
-                  <ThemedText style={styles.markerLabelText}>{markerLabel}</ThemedText>
-                </View>
-                <View style={styles.markerPin}>
-                  <View
-                    style={[
-                      styles.markerRing,
-                      { borderColor: `${meta.color}${isSelected ? 'cc' : '55'}` },
-                      isSelected && styles.markerRingSelected,
-                    ]}
-                  />
-                  <View
-                    style={[
-                      styles.markerDot,
-                      { backgroundColor: meta.color },
-                      isSelected && styles.markerDotSelected,
-                    ]}
-                  />
-                </View>
-              </View>
-            </Marker>
-          );
-        })}
+        {pins.map((pin) => (
+          <MapMarker
+            key={pin.id}
+            pin={pin}
+            selected={pin.id === selected?.id}
+            onPress={() => focusPin(pin)}
+          />
+        ))}
       </MapView>
 
-      {/* Top overlay */}
       <View style={[styles.topOverlay, { paddingTop: insets.top + 10 }]} pointerEvents="box-none">
-        <View style={styles.heroCard}>
-          <View style={styles.heroLeft}>
-            <ThemedText type="title" style={styles.title}>
-              {t('map:title')}
-            </ThemedText>
-            <ThemedText style={styles.subtitle}>{t('map:subtitle')}</ThemedText>
-
-            <View style={styles.liveRow}>
-              <View style={styles.liveDot} />
-              <ThemedText style={styles.liveText}>{lastUpdatedLabel}</ThemedText>
-            </View>
-          </View>
-
-          <Image source={images.pin} style={styles.heroImage} contentFit="contain" />
-        </View>
-
-        <View style={styles.statusRow}>
-          {(Object.keys(statusMeta) as Availability[]).map((key) => {
-            const meta = statusMeta[key];
-            const count = counts[key];
-            return (
-              <View key={key} style={styles.statusPill}>
-                <View style={[styles.statusDot, { backgroundColor: meta.color }]} />
-                <ThemedText style={styles.statusText}>{meta.label}</ThemedText>
-                <View style={styles.statusCount}>
-                  <ThemedText style={styles.statusCountText}>{count}</ThemedText>
-                </View>
-              </View>
-            );
+        <HeaderOverlay
+          title={t('map:title', { defaultValue: 'Facility map' })}
+          subtitle={t('map:subtitle', {
+            defaultValue: 'Tap a station to see queue length, ETA, and actions.',
           })}
-        </View>
+          updatedLabel={lastUpdatedLabel}
+          loading={isLoading || isRefetching}
+          syncingLabel={t('map:syncing', { defaultValue: 'Syncing' })}
+          liveLabel={t('map:live', { defaultValue: 'Live' })}
+          resetLabel={t('map:reset', { defaultValue: 'Reset' })}
+          refreshLabel={t('map:refresh', { defaultValue: 'Refresh' })}
+          onReset={resetMap}
+          onRefresh={refetchAll}
+        />
 
-        <View style={styles.quickRow}>
-          <Pressable style={styles.quickButton} onPress={() => mapRef.current?.animateToRegion(initialRegion, 360)}>
-            <ThemedText style={styles.quickButtonText}>{t('map:reset')}</ThemedText>
-          </Pressable>
-
-          <Pressable
-            style={styles.quickButton}
-            onPress={() => {
-              // Real app: refetch KPIs
-            }}
-          >
-            <ThemedText style={styles.quickButtonText}>{t('map:refresh')}</ThemedText>
-          </Pressable>
-        </View>
+        <StatusStrip counts={counts} labels={statusLabels} />
       </View>
 
-      {/* Bottom sheet */}
       {selected ? (
-        <ThemedView
-          style={[
-            styles.sheet,
-            {
-              paddingBottom: Math.max(insets.bottom, 12) + 10,
-            },
-          ]}
-        >
-          <View style={styles.sheetHeader}>
-            <View style={styles.sheetTitleWrap}>
-              <ThemedText style={styles.sheetTitle}>{selected.name}</ThemedText>
-              <View
-                style={[
-                  styles.availabilityBadge,
-                  {
-                    backgroundColor: `${statusMeta[selected.availability].color}22`,
-                    borderColor: `${statusMeta[selected.availability].color}55`,
-                  },
-                ]}
-              >
-                <ThemedText
-                  style={[
-                    styles.availabilityBadgeText,
-                    { color: statusMeta[selected.availability].color },
-                  ]}
-                >
-                  {statusMeta[selected.availability].label}
-                </ThemedText>
-              </View>
-            </View>
-
-            <Image source={images.houseIcon} style={styles.sheetImage} contentFit="contain" />
-          </View>
-
-          <View style={styles.metricsRow}>
-            <View style={styles.metric}>
-              <ThemedText style={styles.metricLabel}>
-                {t('common:queueLength', { defaultValue: 'Queue length' })}
-              </ThemedText>
-              <ThemedText style={styles.metricValue}>
-                {t('map:trucks', { count: selected.queueLength })}
-              </ThemedText>
-            </View>
-
-            <View style={styles.metricDivider} />
-
-            <View style={styles.metric}>
-              <ThemedText style={styles.metricLabel}>
-                {t('common:eta', { defaultValue: 'ETA' })}
-              </ThemedText>
-              <ThemedText style={styles.metricValue}>
-                {selected.etaMin == null ? '-' : t('common:mins', { count: selected.etaMin })}
-              </ThemedText>
-            </View>
-          </View>
-
-          <View style={styles.actionsRow}>
-            <Pressable style={styles.primaryButton} onPress={handleBook}>
-              <ThemedText style={styles.primaryButtonText}>{t('map:bookSlot')}</ThemedText>
-            </Pressable>
-
-            <Pressable style={styles.secondaryButton} onPress={() => openDirections(selected)}>
-              <ThemedText style={styles.secondaryButtonText}>{t('map:directions')}</ThemedText>
-            </Pressable>
-          </View>
-
-          <View style={styles.facilityChipsRow}>
-            {pins.map((facility) => {
-              const meta = statusMeta[facility.availability];
-              const active = facility.id === selectedId;
-
-              return (
-                <Pressable
-                  key={facility.id}
-                  style={[
-                    styles.facilityChip,
-                    active && styles.facilityChipActive,
-                    { borderColor: active ? `${meta.color}66` : '#1a1a1a' },
-                  ]}
-                  onPress={() => focusFacility(facility)}
-                >
-                  <View style={[styles.facilityChipDot, { backgroundColor: meta.color }]} />
-                  <ThemedText style={styles.facilityChipText} numberOfLines={1}>
-                    {facility.name}
-                  </ThemedText>
-                </Pressable>
-              );
+        <View style={[styles.bottomWrap, { paddingBottom: Math.max(insets.bottom, 10) + 74 }]}>
+          <BottomSheet
+            selected={selected}
+            pins={pins}
+            statusLabel={statusLabels[selected.availability]}
+            queueLabel={t('common:queueLength', { defaultValue: 'Queue length' })}
+            etaLabel={t('common:eta', { defaultValue: 'ETA' })}
+            trucksLabel={t('map:trucks', {
+              count: selected.queueLength,
+              defaultValue: `${selected.queueLength} trucks`,
             })}
-          </View>
-        </ThemedView>
+            minsLabel={t('common:mins', {
+              count: selected.etaMin ?? 0,
+              defaultValue: `${selected.etaMin ?? 0} min`,
+            })}
+            unavailableLabel={t('common:notAvailable', { defaultValue: 'Not available' })}
+            bookLabel={t('map:bookSlot', { defaultValue: 'Book slot' })}
+            directionsLabel={t('map:directions', { defaultValue: 'Directions' })}
+            onBook={handleBook}
+            onDirections={handleDirections}
+            onSelectPin={focusPin}
+          />
+        </View>
       ) : null}
     </View>
   );
@@ -574,29 +460,185 @@ export default function MapScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0b0b0b',
+    backgroundColor: COLORS.bg,
+  },
+  pressed: {
+    opacity: 0.92,
+    transform: [{ scale: 0.99 }],
   },
 
-  // Marker
+  topOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    paddingHorizontal: 16,
+  },
+  headerCard: {
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+    backgroundColor: COLORS.card,
+    padding: 15,
+  },
+  headerGlow: {
+    position: 'absolute',
+    width: 180,
+    height: 180,
+    borderRadius: 999,
+    right: -82,
+    top: -96,
+    backgroundColor: '#2b8cff18',
+  },
+  headerTop: {
+    position: 'relative',
+    zIndex: 2,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  headerCopy: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 12,
+  },
+  title: {
+    color: COLORS.text,
+    fontSize: 20,
+    lineHeight: 25,
+    fontWeight: '700',
+    letterSpacing: -0.15,
+  },
+  subtitle: {
+    color: COLORS.textSoft,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 4,
+  },
+  liveBadge: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#2b8cff40',
+    backgroundColor: COLORS.blueSoft,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
+  liveDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 999,
+    backgroundColor: COLORS.blue,
+    marginRight: 6,
+  },
+  liveText: {
+    color: COLORS.blueText,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '700',
+  },
+  updatedText: {
+    position: 'relative',
+    zIndex: 2,
+    color: COLORS.muted,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 8,
+  },
+  headerActions: {
+    position: 'relative',
+    zIndex: 2,
+    flexDirection: 'row',
+    marginHorizontal: -5,
+    marginTop: 12,
+  },
+  headerAction: {
+    flex: 1,
+    minHeight: 40,
+    marginHorizontal: 5,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+    backgroundColor: COLORS.cardRaised,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  headerActionText: {
+    color: COLORS.blueText,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+    marginLeft: 6,
+  },
+
+  statusStrip: {
+    flexDirection: 'row',
+    marginHorizontal: -4,
+    marginTop: 10,
+  },
+  statusChip: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 40,
+    marginHorizontal: 4,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+    backgroundColor: COLORS.card,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 9,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    marginRight: 7,
+  },
+  statusLabel: {
+    flex: 1,
+    minWidth: 0,
+    color: COLORS.textSoft,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '600',
+  },
+  statusCount: {
+    color: COLORS.text,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+    marginLeft: 6,
+  },
+
   markerWrap: {
     width: 92,
-    height: 54,
+    height: 60,
     alignItems: 'center',
     justifyContent: 'flex-end',
   },
-  markerLabelWrap: {
+  markerLabel: {
+    maxWidth: 86,
     marginBottom: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#1f1f1f',
-    backgroundColor: '#0f0f0f',
+    borderColor: COLORS.line,
+    backgroundColor: COLORS.card,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  markerLabelSelected: {
+    borderColor: '#2b8cff66',
+    backgroundColor: '#071326',
   },
   markerLabelText: {
-    color: '#f5f5f5',
+    color: COLORS.text,
     fontSize: 11,
-    fontWeight: '800',
+    lineHeight: 14,
+    fontWeight: '700',
   },
   markerPin: {
     width: 30,
@@ -626,259 +668,170 @@ const styles = StyleSheet.create({
     height: 12,
   },
 
-  // Overlays
-  topOverlay: {
+  bottomWrap: {
     position: 'absolute',
     left: 0,
     right: 0,
+    bottom: 0,
     paddingHorizontal: 16,
-    gap: 10,
   },
-  heroCard: {
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#1a1a1a',
-    backgroundColor: '#0f0f0f',
-    padding: 16,
-    overflow: 'hidden',
-  },
-  heroLeft: {
-    gap: 6,
-    maxWidth: '74%',
-  },
-  title: {
-    color: '#fff',
-    fontSize: 24,
-    fontWeight: '800',
-  },
-  subtitle: {
-    color: '#9aa0a6',
-  },
-  liveRow: {
-    marginTop: 4,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  liveDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 999,
-    backgroundColor: '#2b8cff',
-  },
-  liveText: {
-    color: '#9bbcff',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  heroImage: {
-    position: 'absolute',
-    right: -12,
-    top: -12,
-    width: 130,
-    height: 130,
-    opacity: 0.22,
-  },
-
-  statusRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  statusPill: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#1a1a1a',
-    backgroundColor: '#0f0f0f',
-  },
-  statusDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 999,
-  },
-  statusText: {
-    flex: 1,
-    color: '#e6e6e6',
-    fontWeight: '800',
-    fontSize: 12,
-  },
-  statusCount: {
-    minWidth: 26,
-    height: 22,
-    borderRadius: 999,
-    backgroundColor: '#141414',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#1a1a1a',
-  },
-  statusCountText: {
-    color: '#cfcfcf',
-    fontSize: 12,
-    fontWeight: '800',
-  },
-
-  quickRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  quickButton: {
-    flex: 1,
-    height: 44,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#1a1a1a',
-    backgroundColor: '#101010',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  quickButtonText: {
-    color: '#e6e6e6',
-    fontWeight: '800',
-  },
-
-  // Bottom sheet
   sheet: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    bottom: 10,
-    borderRadius: 18,
+    borderRadius: 22,
     borderWidth: 1,
-    borderColor: '#222',
-    backgroundColor: '#0f0f0f',
-    padding: 16,
-    gap: 12,
-    overflow: 'hidden',
+    borderColor: COLORS.line,
+    backgroundColor: COLORS.card,
+    padding: 15,
+  },
+  sheetHandle: {
+    alignSelf: 'center',
+    width: 42,
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: '#263247',
+    marginBottom: 13,
   },
   sheetHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
+    alignItems: 'flex-start',
+    marginBottom: 13,
   },
   sheetTitleWrap: {
     flex: 1,
-    gap: 10,
+    minWidth: 0,
+    paddingRight: 12,
   },
   sheetTitle: {
-    color: '#fff',
+    color: COLORS.text,
     fontSize: 18,
-    fontWeight: '900',
+    lineHeight: 23,
+    fontWeight: '700',
+  },
+  sheetSub: {
+    color: COLORS.muted,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 3,
   },
   availabilityBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
+    maxWidth: 110,
+    borderRadius: 999,
     borderWidth: 1,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
   },
   availabilityBadgeText: {
-    fontWeight: '900',
-    fontSize: 12,
-  },
-  sheetImage: {
-    width: 84,
-    height: 84,
-    opacity: 0.14,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '700',
   },
 
-  metricsRow: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    borderWidth: 1,
-    borderColor: '#1a1a1a',
-    backgroundColor: '#0c0c0c',
-    borderRadius: 14,
+  metricsCard: {
     overflow: 'hidden',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.lineSoft,
+    backgroundColor: '#070b1288',
+    flexDirection: 'row',
+    marginBottom: 12,
   },
   metric: {
     flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    gap: 6,
+    minHeight: 58,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+    justifyContent: 'center',
   },
   metricDivider: {
     width: 1,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: COLORS.lineSoft,
   },
   metricLabel: {
-    color: '#9aa0a6',
+    color: COLORS.muted,
     fontSize: 12,
-    fontWeight: '700',
+    lineHeight: 16,
+    fontWeight: '500',
   },
   metricValue: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '900',
+    color: COLORS.text,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+    marginTop: 3,
   },
 
   actionsRow: {
     flexDirection: 'row',
-    gap: 10,
+    marginHorizontal: -5,
+    marginBottom: 12,
   },
   primaryButton: {
     flex: 1,
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: '#2b8cff',
+    minHeight: 46,
+    marginHorizontal: 5,
+    borderRadius: 15,
+    backgroundColor: COLORS.blue,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 12,
   },
   primaryButtonText: {
-    color: '#fff',
-    fontWeight: '900',
+    color: COLORS.text,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '700',
   },
   secondaryButton: {
-    width: 120,
-    height: 48,
-    borderRadius: 14,
+    flex: 1,
+    minHeight: 46,
+    marginHorizontal: 5,
+    borderRadius: 15,
     borderWidth: 1,
-    borderColor: '#1a1a1a',
-    backgroundColor: '#101010',
+    borderColor: COLORS.line,
+    backgroundColor: COLORS.cardRaised,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 12,
   },
   secondaryButtonText: {
-    color: '#e6e6e6',
-    fontWeight: '900',
+    color: COLORS.blueText,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '700',
   },
 
-  facilityChipsRow: {
+  pinList: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    marginHorizontal: -4,
+    marginBottom: -8,
   },
-  facilityChip: {
-    flexGrow: 1,
-    minWidth: '48%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+  pinChip: {
+    width: '48%',
+    minHeight: 38,
+    marginHorizontal: 4,
+    marginBottom: 8,
     borderRadius: 14,
     borderWidth: 1,
-    backgroundColor: '#0c0c0c',
+    backgroundColor: '#070b1288',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
   },
-  facilityChipActive: {
-    backgroundColor: '#0d121a',
+  pinChipActive: {
+    backgroundColor: '#071326',
   },
-  facilityChipDot: {
-    width: 10,
-    height: 10,
+  pinChipDot: {
+    width: 8,
+    height: 8,
     borderRadius: 999,
+    marginRight: 7,
   },
-  facilityChipText: {
+  pinChipText: {
     flex: 1,
-    color: '#e6e6e6',
+    minWidth: 0,
+    color: COLORS.textSoft,
     fontSize: 12,
-    fontWeight: '800',
+    lineHeight: 16,
+    fontWeight: '600',
   },
 });

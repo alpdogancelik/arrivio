@@ -1,6 +1,4 @@
 import { db } from '@/services/firebase';
-import { USE_MOCK_DATA } from '@/config/mock';
-import { listMockStations } from '@/mock/data';
 import type { Station } from '@/types/api';
 import { collection, getDocs } from 'firebase/firestore';
 
@@ -76,22 +74,7 @@ const mapStation = (id: string, data: Record<string, any>): Station => {
   };
 };
 
-const mapMockStation = (item: any): Station => ({
-  id: String(item.id ?? ''),
-  facilityId: String(item.facilityId ?? ''),
-  name: String(item.name ?? ''),
-  gate: item.kind,
-  servers: toNumberValue(item.servers),
-  status: undefined,
-  latitude: undefined,
-  longitude: undefined,
-});
-
 export const fetchStations = async (facilityId?: string) => {
-  if (USE_MOCK_DATA) {
-    return listMockStations(facilityId).map(mapMockStation);
-  }
-
   const database = ensureDb();
   const snapshot = await getDocs(collection(database, 'Station'));
   let stations = snapshot.docs.map((docSnap) => mapStation(docSnap.id, docSnap.data() as Record<string, any>));

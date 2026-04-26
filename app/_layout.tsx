@@ -12,7 +12,6 @@ import { useTranslation } from 'react-i18next';
 
 import { AuthProvider, useAuth } from '@/components/auth-context';
 import { ThemedText } from '@/components/themed-text';
-import { appConfig } from '@/config';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import i18n from '@/i18n';
 import { loadLanguage } from '@/storage/language-store';
@@ -21,7 +20,6 @@ export const unstable_settings = {
   anchor: '(tabs)',
 };
 
-const AUTH_DISABLED = appConfig.authDisabled;
 const PRIMARY_FONT = 'ChairoSans';
 
 // On web, `expo-font` uses `fontfaceobserver` with a hard-coded 6000ms timeout.
@@ -36,7 +34,6 @@ const AUTH_PATHS = new Set([
   '/(auth)/register',
   '/(auth)/forgot-password',
 ]);
-const HOME_PATHS = new Set(['/home', '/(tabs)/home']);
 const webFrameShadow =
   Platform.OS === 'web'
     ? ({ boxShadow: '0px 10px 30px rgba(0, 0, 0, 0.25)' } as const)
@@ -88,31 +85,17 @@ function AuthGate() {
   const pathname = normalizePathname(usePathname());
   const { t } = useTranslation(['common']);
   const inAuthFlow = AUTH_PATHS.has(pathname);
-  const inHomeFlow = HOME_PATHS.has(pathname);
   const splashReleasedRef = useRef(false);
 
   useEffect(() => {
     if (splashReleasedRef.current) return;
-    if (AUTH_DISABLED || status !== 'checking') {
+    if (status !== 'checking') {
       splashReleasedRef.current = true;
       if (Platform.OS !== 'web') {
         SplashScreen.hideAsync().catch(() => undefined);
       }
     }
   }, [status]);
-
-  if (AUTH_DISABLED) {
-    if (inAuthFlow && !inHomeFlow) {
-      return <Redirect href="/(tabs)/home" />;
-    }
-
-    return (
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal', title: t('common:appName') }} />
-      </Stack>
-    );
-  }
 
   if (Platform.OS !== 'web' && status === 'checking' && !splashReleasedRef.current) {
     return (

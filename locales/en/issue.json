@@ -21,6 +21,17 @@
   "equipment": "Equipment problem",
   "safety": "Safety",
   "other": "Other",
+  "recentTitle": "Recent reports",
+  "recentIssues": "Issues",
+  "noIssues": "No issues yet",
+  "noIssuesBody": "Reports you submit will appear here with their current status.",
+  "issueCount": "{{count}} issue",
+  "issueCount_other": "{{count}} issues",
   "nextTitle": "What happens next?",
-  "nextBody": "Your report is routed to facility ops. Expect a response within 30 minutes and live updates in the Status tab."
+  "nextBody": "Your report is routed to facility ops. Expect a response within 30 minutes and live updates in the Status tab.",
+  "status": {
+    "open": "Open",
+    "resolved": "Resolved",
+    "in_progress": "In progress"
+  }
 }

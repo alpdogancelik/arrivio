@@ -84,14 +84,6 @@ export const BookingSchema = z.object({
 });
 export type Booking = z.infer<typeof BookingSchema>;
 
-export const QueueStatusSchema = z.object({
-  stationId: z.string(),
-  etaMinutes: z.number(),
-  queueLength: z.number().optional(),
-  updatedAt: z.string().optional(),
-});
-export type QueueStatus = z.infer<typeof QueueStatusSchema>;
-
 export const IssueStatusSchema = z.enum(['open', 'in_progress', 'resolved']);
 export type IssueStatus = z.infer<typeof IssueStatusSchema>;
 
@@ -164,23 +156,3 @@ export const StationRecommendationResponseSchema = z.object({
   windowMinutes: z.number().optional(),
 });
 export type StationRecommendationResponse = z.infer<typeof StationRecommendationResponseSchema>;
-
-export const BookingPredictedStatusSchema = z.object({
-  bookingId: z.string(),
-  stationId: z.string(),
-  predictedWaitMin: z.number(),
-  predictedPosition: z.number(),
-  predictedQueue: z.number(),
-  serviceStartEta: z.string().optional(),
-  updatedAt: z.string().optional(),
-});
-export type BookingPredictedStatus = z.infer<typeof BookingPredictedStatusSchema>;
-
-export const ReportSchema = z.object({
-  id: z.string(),
-  averageWaitingMinutes: z.number().optional(),
-  averageServiceMinutes: z.number().optional(),
-  dailyTruckCount: z.number().optional(),
-  createdAt: z.string().optional(),
-});
-export type Report = z.infer<typeof ReportSchema>;

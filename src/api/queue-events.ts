@@ -1,7 +1,5 @@
 import { db } from '@/services/firebase';
-import { USE_MOCK_DATA } from '@/config/mock';
 import type { QueueEvent, QueueEventType } from '@/types/api';
-import { createMockQueueEvent, listMockQueueEvents } from '@/mock/data';
 import { collection, doc, getDocs, serverTimestamp, setDoc } from 'firebase/firestore';
 
 const ensureDb = () => {
@@ -85,10 +83,6 @@ export type ListQueueEventParams = {
 };
 
 export const fetchQueueEvents = async (params?: ListQueueEventParams) => {
-  if (USE_MOCK_DATA) {
-    return listMockQueueEvents(params);
-  }
-
   const database = ensureDb();
   const snapshot = await getDocs(collection(database, 'QueueEvent'));
   let events = snapshot.docs.map((docSnap) => mapQueueEvent(docSnap.id, docSnap.data() as Record<string, any>));
@@ -119,10 +113,6 @@ export const fetchQueueEvents = async (params?: ListQueueEventParams) => {
 };
 
 export const createQueueEvent = async (payload: CreateQueueEventPayload) => {
-  if (USE_MOCK_DATA) {
-    return createMockQueueEvent(payload);
-  }
-
   const database = ensureDb();
   const ref = doc(collection(database, 'QueueEvent'));
   const ts = payload.ts ? new Date(payload.ts) : null;

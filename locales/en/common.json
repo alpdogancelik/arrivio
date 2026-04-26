@@ -9,6 +9,7 @@
   "bookSlot": "Book a slot",
   "queueLength": "Queue length",
   "eta": "Estimated time of arrival",
+  "notAvailable": "Not available",
   "mins": "{{count}} min",
   "mins_other": "{{count}} mins",
   "yes": "Yes",
@@ -31,6 +32,11 @@
   "signOutBody": "Signing out will return you to the login screen.",
   "signOutFailed": "Sign out failed",
   "sessionCleared": "This will clear your session on this device.",
-  "apiBaseUrlMissing": "API_BASE_URL is missing. Set it in .env and restart Metro.",
-  "unexpectedError": "Unexpected error."
+  "unexpectedError": "Unexpected error.",
+  "roles": {
+    "carrier": "Carrier",
+    "facility": "Facility",
+    "admin": "Admin",
+    "operator": "Operator"
+  }
 }

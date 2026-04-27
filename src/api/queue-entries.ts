@@ -121,10 +121,25 @@ export const fetchQueueEntries = async (params?: ListQueueEntryParams) => {
   const database = ensureDb();
   const queueCollection = collection(database, 'QueueEntry');
   const carrierId = params?.carrierId ?? auth?.currentUser?.uid;
-  const snapshot = carrierId
-    ? await getDocs(query(queueCollection, where('carrierId', '==', carrierId)))
-    : await getDocs(queueCollection);
-  let entries = snapshot.docs.map((docSnap) => mapQueueEntry(docSnap.id, docSnap.data() as Record<string, any>));
+  let entries: QueueEntry[];
+
+  if (carrierId) {
+    const carrierIdFields = ['carrierId', 'Carrier_ID', 'CarrierId', 'carrierID', 'carrier_id'] as const;
+    const snapshots = await Promise.all(
+      carrierIdFields.map((field) => getDocs(query(queueCollection, where(field, '==', carrierId)))),
+    );
+
+    const deduped = new Map<string, QueueEntry>();
+    for (const snapshot of snapshots) {
+      for (const docSnap of snapshot.docs) {
+        deduped.set(docSnap.id, mapQueueEntry(docSnap.id, docSnap.data() as Record<string, any>));
+      }
+    }
+    entries = Array.from(deduped.values());
+  } else {
+    const snapshot = await getDocs(queueCollection);
+    entries = snapshot.docs.map((docSnap) => mapQueueEntry(docSnap.id, docSnap.data() as Record<string, any>));
+  }
 
   if (params?.stationId) {
     entries = entries.filter((entry) => entry.stationId === params.stationId);

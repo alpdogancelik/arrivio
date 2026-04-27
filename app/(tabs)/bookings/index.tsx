@@ -23,6 +23,7 @@ import { queryKeys } from "@/query/keys";
 
 type BookingLike = {
   id?: string;
+  firestoreId?: string;
   stationName?: string;
   stationId?: string;
   facilityName?: string;
@@ -469,7 +470,8 @@ export default function BookingsIndexScreen() {
 
   const goNewBooking = () => router.push(ROUTES.newBooking as Href);
 
-  const openBooking = (id?: string) => {
+  const openBooking = (booking?: BookingLike) => {
+    const id = booking?.firestoreId ?? booking?.id;
     if (!id) return;
     router.push(ROUTES.detail(id) as Href);
   };
@@ -566,7 +568,7 @@ export default function BookingsIndexScreen() {
                 booking={booking}
                 labels={cardLabels}
                 statusLabel={getStatusLabel(booking.status)}
-                onPress={() => openBooking(booking.id)}
+                onPress={() => openBooking(booking)}
               />
             ))}
           </Section>
@@ -586,7 +588,7 @@ export default function BookingsIndexScreen() {
                 muted
                 labels={cardLabels}
                 statusLabel={getStatusLabel(booking.status)}
-                onPress={() => openBooking(booking.id)}
+                onPress={() => openBooking(booking)}
               />
             ))}
           </Section>

@@ -2,11 +2,11 @@ import { Issue, IssueStatus } from '@/types/api';
 import { ApiError } from '@/api/errors';
 import { auth, db, storage } from '@/services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { collection, doc, getDocs, serverTimestamp, setDoc } from 'firebase/firestore';
+import { collection, doc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from 'firebase/firestore';
 import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage';
 
-const PRIMARY_ISSUES_COLLECTION = 'Issue';
-const LEGACY_ISSUES_COLLECTION = 'issues';
+const PRIMARY_ISSUES_COLLECTION = 'issues';
+const LEGACY_ISSUES_COLLECTION = 'Issue';
 
 const ensureDb = () => {
   if (!db) {
@@ -79,22 +79,25 @@ const toIsoString = (value: any) => {
 
 const normalizeIssueStatus = (value: unknown): IssueStatus => {
   const raw = String(value ?? '').toLowerCase();
-  if (raw === 'open' || raw === 'in_progress' || raw === 'resolved') {
+  if (raw === 'open' || raw === 'in_progress' || raw === 'resolved' || raw === 'cancelled') {
     return raw as IssueStatus;
   }
-  if (raw === 'unsolved' || raw === 'new' || raw === 'pending') return 'open';
+  if (raw === 'unsolved' || raw === 'new' || raw === 'pending' || raw === 'waiting') return 'open';
+  if (raw === 'canceled' || raw === 'cancelled') return 'cancelled';
   if (raw === 'solved' || raw === 'closed' || raw === 'done') return 'resolved';
   return 'open';
 };
 
-const mapIssue = (id: string, data: Record<string, any>): Issue => ({
+const mapIssue = (id: string, data: Record<string, any>, sourceCollection?: string): Issue => ({
   id: toStringValue(data.Issue_ID) ?? id,
+  firestoreId: id,
   bookingId: toStringValue(data.Booking_ID ?? data.bookingId),
   category: toStringValue(data.Category ?? data.Title ?? data.category ?? data.title) ?? 'General',
   description: toStringValue(data.Content ?? data.Description ?? data.description) ?? '',
   photoUrl: toStringValue(data.PhotoUrl ?? data.photoUrl),
   status: normalizeIssueStatus(data.Status ?? data.status ?? data.issueStatus),
   createdAt: toIsoString(data.Timestamp ?? data.CreatedAt ?? data.createdAt ?? data.created_on),
+  sourceCollection,
 });
 
 export type CreateIssuePayload = {
@@ -209,7 +212,7 @@ export const createIssue = async (payload: CreateIssuePayload) => {
       PhotoUrl: resolvedPhotoUrl,
       Carrier_ID: user.uid,
       carrierId: user.uid,
-      Status: 'Unsolved',
+      Status: 'Waiting',
       CreatedAt: serverTimestamp(),
       UpdatedAt: serverTimestamp(),
       Timestamp: serverTimestamp(),
@@ -220,7 +223,7 @@ export const createIssue = async (payload: CreateIssuePayload) => {
     return mapIssue(ref.id, {
       ...data,
       Timestamp: new Date().toISOString(),
-    });
+    }, collectionName);
   };
 
   try {
@@ -240,9 +243,10 @@ export const createIssue = async (payload: CreateIssuePayload) => {
 
 export const fetchIssues = async (params?: ListIssuesParams) => {
   const database = ensureDb();
+  const user = await ensureUser();
   const readCollectionSafely = async (name: string) => {
     try {
-      return await getDocs(collection(database, name));
+      return await getDocs(query(collection(database, name), where('Carrier_ID', '==', user.uid)));
     } catch (error) {
       if (isPermissionError(error)) {
         return null;
@@ -259,7 +263,7 @@ export const fetchIssues = async (params?: ListIssuesParams) => {
   const rows = [...(primarySnapshot?.docs ?? []), ...(legacySnapshot?.docs ?? [])].map((docSnap) => {
     const raw = docSnap.data() as Record<string, any>;
     return {
-      issue: mapIssue(docSnap.id, raw),
+      issue: mapIssue(docSnap.id, raw, docSnap.ref.parent.id),
       carrierId: toStringValue(
         raw?.Carrier_ID ??
         raw?.carrierId ??
@@ -274,8 +278,9 @@ export const fetchIssues = async (params?: ListIssuesParams) => {
 
   const deduped = new Map<string, { issue: Issue; carrierId?: string }>();
   for (const row of rows) {
-    if (!deduped.has(row.issue.id)) {
-      deduped.set(row.issue.id, row);
+    const key = `${row.issue.sourceCollection ?? PRIMARY_ISSUES_COLLECTION}:${row.issue.firestoreId ?? row.issue.id}`;
+    if (!deduped.has(key)) {
+      deduped.set(key, row);
     }
   }
 
@@ -295,4 +300,21 @@ export const fetchIssues = async (params?: ListIssuesParams) => {
   }
 
   return issues.map((row) => row.issue);
+};
+
+export const cancelIssue = async (issue: Pick<Issue, 'id' | 'firestoreId' | 'sourceCollection'>) => {
+  const database = ensureDb();
+  await ensureUser();
+  const collectionName = issue.sourceCollection || PRIMARY_ISSUES_COLLECTION;
+  const docId = issue.firestoreId || issue.id;
+
+  await updateDoc(doc(database, collectionName, docId), {
+    Status: 'Cancelled',
+    UpdatedAt: serverTimestamp(),
+  });
+
+  return {
+    ...issue,
+    status: 'cancelled' as IssueStatus,
+  };
 };

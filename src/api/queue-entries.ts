@@ -1,6 +1,6 @@
-import { db } from '@/services/firebase';
+import { auth, db } from '@/services/firebase';
 import type { QueueEntry } from '@/types/api';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 
 const ensureDb = () => {
   if (!db) {
@@ -23,9 +23,20 @@ const toNumberValue = (value: unknown) => {
 const normalizeQueueEntryStatus = (value: unknown) => {
   const raw = String(value ?? '').trim().toLowerCase();
   if (!raw) return undefined;
-  if (raw === 'waiting') return 'Waiting';
-  if (raw === 'servicing' || raw === 'serving' || raw === 'inservice' || raw === 'in_service') return 'Servicing';
-  if (raw === 'completed' || raw === 'done') return 'Completed';
+  if (raw === 'waiting' || raw === 'queued' || raw === 'pending') return 'Waiting';
+  if (
+    raw === 'servicing' ||
+    raw === 'serving' ||
+    raw === 'serviced' ||
+    raw === 'inservice' ||
+    raw === 'in_service' ||
+    raw === 'in service' ||
+    raw === 'started' ||
+    raw === 'processing'
+  ) {
+    return 'Servicing';
+  }
+  if (raw === 'completed' || raw === 'complete' || raw === 'done' || raw === 'solved') return 'Completed';
   return undefined;
 };
 
@@ -57,9 +68,9 @@ const diffMinutes = (start?: any, end?: any) => {
 };
 
 const mapQueueEntry = (id: string, data: Record<string, any>): QueueEntry => {
-  const entryTime = toIsoString(data.EntryTime ?? data.entryTime ?? data.Entry_Time);
-  const exitTime = toIsoString(data.ExitTime ?? data.exitTime ?? data.Exit_Time);
-  const serviceTime = data.ServiceTime ?? data.serviceTime ?? data.Service_Time;
+  const entryTime = toIsoString(data.EntryTime ?? data.entryTime ?? data.Entry_Time ?? data.queuedAt ?? data.slotStartAt);
+  const exitTime = toIsoString(data.ExitTime ?? data.exitTime ?? data.Exit_Time ?? data.completedAt);
+  const serviceTime = data.ServiceTime ?? data.serviceTime ?? data.Service_Time ?? data.startedAt;
   const waitingTime = data.WaitingTime ?? data.waitingTime ?? data.Waiting_Time;
 
   const waitingMinutes =
@@ -90,13 +101,13 @@ const mapQueueEntry = (id: string, data: Record<string, any>): QueueEntry => {
       data.Station_ID ?? data.stationId ?? data.StationId ?? data.Sation_ID ?? data.SationId,
     ),
     bookingId: toStringValue(data.Booking_ID ?? data.bookingId ?? data.booking_id) ?? null,
-    status: normalizeQueueEntryStatus(data.Status ?? data.status),
+    status: normalizeQueueEntryStatus(data.Status ?? data.status ?? data.queueStatus),
     entryTime,
     exitTime,
     waitingMinutes,
     serviceMinutes,
-    createdAt: toIsoString(data.CreatedAt ?? data.createdAt ?? data.Timestamp),
-    updatedAt: toIsoString(data.UpdatedAt ?? data.updatedAt),
+    createdAt: toIsoString(data.CreatedAt ?? data.createdAt ?? data.Timestamp ?? data.queuedAt),
+    updatedAt: toIsoString(data.UpdatedAt ?? data.updatedAt ?? data.completedAt ?? data.startedAt),
   };
 };
 
@@ -108,7 +119,11 @@ export type ListQueueEntryParams = {
 
 export const fetchQueueEntries = async (params?: ListQueueEntryParams) => {
   const database = ensureDb();
-  const snapshot = await getDocs(collection(database, 'QueueEntry'));
+  const queueCollection = collection(database, 'QueueEntry');
+  const carrierId = params?.carrierId ?? auth?.currentUser?.uid;
+  const snapshot = carrierId
+    ? await getDocs(query(queueCollection, where('carrierId', '==', carrierId)))
+    : await getDocs(queueCollection);
   let entries = snapshot.docs.map((docSnap) => mapQueueEntry(docSnap.id, docSnap.data() as Record<string, any>));
 
   if (params?.stationId) {

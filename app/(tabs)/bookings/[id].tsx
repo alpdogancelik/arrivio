@@ -36,7 +36,6 @@ type DetailRowItem = {
 
 const ROUTES = {
   list: "/(tabs)/bookings" as const,
-  newBooking: "/(tabs)/bookings/new" as const,
   detail: (id: string) =>
     ({
       pathname: "/(tabs)/bookings/[id]",
@@ -271,18 +270,16 @@ const ActionsCard = memo(function ActionsCard(props: {
   canManage: boolean;
   bookingStatus: string;
   cancelPending: boolean;
-  onReschedule: () => void;
   onCancel: () => void;
   labels: {
     title: string;
-    reschedule: string;
     cancel: string;
     cancelling: string;
     cancelled: string;
     completed: string;
   };
 }) {
-  const { canManage, bookingStatus, cancelPending, onReschedule, onCancel, labels } = props;
+  const { canManage, bookingStatus, cancelPending, onCancel, labels } = props;
 
   return (
     <View style={styles.card}>
@@ -290,15 +287,6 @@ const ActionsCard = memo(function ActionsCard(props: {
 
       {canManage ? (
         <View style={styles.actionStack}>
-          <Pressable
-            onPress={onReschedule}
-            accessibilityRole="button"
-            accessibilityLabel={labels.reschedule}
-            style={({ pressed }) => [styles.actionButton, styles.actionSecondary, pressed ? styles.pressed : null]}
-          >
-            <Text style={styles.actionSecondaryText}>{labels.reschedule}</Text>
-          </Pressable>
-
           <Pressable
             onPress={onCancel}
             disabled={cancelPending}
@@ -455,7 +443,8 @@ export default function BookingDetailScreen() {
 
     if (Platform.OS === "web" && typeof window !== "undefined") {
       const confirmed = window.confirm(message);
-      if (confirmed && bookingId) cancelMut.mutate(bookingId);
+      const idToCancel = booking?.firestoreId ?? bookingId;
+      if (confirmed && idToCancel) cancelMut.mutate(idToCancel);
       return;
     }
 
@@ -464,7 +453,10 @@ export default function BookingDetailScreen() {
       {
         text: t("booking:cancelBookingConfirmCta", { defaultValue: "Cancel booking" }),
         style: "destructive",
-        onPress: () => bookingId && cancelMut.mutate(bookingId),
+        onPress: () => {
+          const idToCancel = booking?.firestoreId ?? bookingId;
+          if (idToCancel) cancelMut.mutate(idToCancel);
+        },
       },
     ]);
   };
@@ -591,15 +583,29 @@ export default function BookingDetailScreen() {
   const recommendedStationId = String(
     booking.recommendedStationId ?? recoData?.suggestedStationId ?? "",
   ).trim();
+  const isClosedBooking = bookingStatus === "cancelled" || bookingStatus === "completed";
+  const closedQueueLabel =
+    bookingStatus === "cancelled"
+      ? t("booking:status.cancelled", { defaultValue: "Cancelled" })
+      : t("booking:status.completed", { defaultValue: "Completed" });
 
   const liveRows: DetailRowItem[] = [
     {
       id: "queue",
       label: t("booking:queueStatus", { defaultValue: "Queue status" }),
-      value: latestQueueEntry
+      value: isClosedBooking
+        ? closedQueueLabel
+        : latestQueueEntry
         ? normalizeText(latestQueueEntry.status, t("booking:queueEntryActive", { defaultValue: "Queue entry active" }))
         : t("booking:notJoinedQueue", { defaultValue: "Not joined yet" }),
-      helper: latestQueueEntry?.createdAt
+      helper: isClosedBooking
+        ? t("booking:closedQueueState", {
+          defaultValue:
+            bookingStatus === "cancelled"
+              ? "This booking was cancelled."
+              : "This booking was completed.",
+        })
+        : latestQueueEntry?.createdAt
         ? t("booking:queueEntryCreatedAt", {
           time: formatWhen(latestQueueEntry.createdAt, locale, notScheduledLabel),
           defaultValue: `Updated: ${formatWhen(latestQueueEntry.createdAt, locale, notScheduledLabel)}`,
@@ -728,11 +734,9 @@ export default function BookingDetailScreen() {
           canManage={canManageBooking}
           bookingStatus={bookingStatus}
           cancelPending={cancelMut.isPending}
-          onReschedule={() => router.push(ROUTES.newBooking as Href)}
           onCancel={confirmCancel}
           labels={{
             title: t("common:actions", { defaultValue: "Actions" }),
-            reschedule: t("booking:reschedule", { defaultValue: "Reschedule" }),
             cancel: t("booking:cancelBooking", { defaultValue: "Cancel booking" }),
             cancelling: t("booking:cancelBookingLoading", { defaultValue: "Cancelling..." }),
             cancelled: t("booking:bookingAlreadyCancelled", {
@@ -984,20 +988,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 14,
   },
-  actionSecondary: {
-    borderColor: "#2b8cff40",
-    backgroundColor: COLORS.blueSoft,
-  },
-  actionSecondaryText: {
-    color: COLORS.blueText,
-    fontSize: 14,
-    lineHeight: 19,
-    fontWeight: "700",
-  },
   actionDanger: {
     borderColor: "#ef444440",
     backgroundColor: "#b91c1c",
-    marginTop: 10,
   },
   actionDangerText: {
     color: COLORS.text,

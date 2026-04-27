@@ -2,6 +2,7 @@ import { useAuth } from "@/components/auth-context";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { saveLanguage } from "@/storage/language-store";
+import { localizeAuthError } from "@/utils/auth-error";
 
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -77,6 +78,7 @@ export default function RegisterScreen() {
 
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [languageBusy, setLanguageBusy] = useState(false);
@@ -118,18 +120,12 @@ export default function RegisterScreen() {
     }
   };
 
-  const showRegisterError = (message?: string) => {
-    Alert.alert(
-      t("auth:registrationFailed", { defaultValue: "Registration failed" }),
-      message ?? t("auth:invalidCredentials", { defaultValue: "Please check your information and try again." }),
-    );
-  };
-
   const onRegister = async () => {
     if (!canSubmit) return;
 
     setLoading(true);
     setSuccessMessage("");
+    setErrorMessage("");
 
     try {
       const res = await register({
@@ -140,7 +136,7 @@ export default function RegisterScreen() {
       });
 
       if (!res.ok) {
-        showRegisterError(res.message);
+        setErrorMessage(localizeAuthError(res.message, t));
         return;
       }
 
@@ -150,12 +146,12 @@ export default function RegisterScreen() {
       setPassword("");
 
       setSuccessMessage(
-        t("auth:registrationSuccess", {
-          defaultValue: "Your account was created successfully. You can now sign in.",
+        t("auth:verificationEmailSentBody", {
+          defaultValue: "Verification email sent. Please check your inbox and spam folder.",
         }),
       );
     } catch (error: any) {
-      showRegisterError(error?.message);
+      setErrorMessage(localizeAuthError(error, t));
     } finally {
       setLoading(false);
     }
@@ -221,11 +217,18 @@ export default function RegisterScreen() {
 
                 <View style={styles.successCopy}>
                   <ThemedText style={styles.successTitle}>
-                    {t("auth:emailCheckTitle", { defaultValue: "Account ready" })}
+                    {t("auth:verificationEmailSentTitle", { defaultValue: "Verification email sent" })}
                   </ThemedText>
 
                   <ThemedText style={styles.successText}>{successMessage}</ThemedText>
                 </View>
+              </View>
+            ) : null}
+
+            {errorMessage ? (
+              <View style={styles.errorBox}>
+                <Ionicons name="alert-circle-outline" size={18} color="#ff8a8a" />
+                <ThemedText style={styles.errorText}>{errorMessage}</ThemedText>
               </View>
             ) : null}
 
@@ -238,7 +241,10 @@ export default function RegisterScreen() {
                     placeholder={t("auth:firstName", { defaultValue: "First name" })}
                     placeholderTextColor="#747d89"
                     value={name}
-                    onChangeText={setName}
+                    onChangeText={(value) => {
+                      setName(value);
+                      if (errorMessage) setErrorMessage("");
+                    }}
                     style={styles.input}
                     autoCapitalize="words"
                     returnKeyType="next"
@@ -251,7 +257,10 @@ export default function RegisterScreen() {
                     placeholder={t("auth:lastName", { defaultValue: "Last name" })}
                     placeholderTextColor="#747d89"
                     value={surname}
-                    onChangeText={setSurname}
+                    onChangeText={(value) => {
+                      setSurname(value);
+                      if (errorMessage) setErrorMessage("");
+                    }}
                     style={[styles.input, styles.inputNoIcon]}
                     autoCapitalize="words"
                     returnKeyType="next"
@@ -267,7 +276,10 @@ export default function RegisterScreen() {
                   placeholder={t("auth:email", { defaultValue: "Email" })}
                   placeholderTextColor="#747d89"
                   value={email}
-                  onChangeText={setEmail}
+                  onChangeText={(value) => {
+                    setEmail(value);
+                    if (errorMessage) setErrorMessage("");
+                  }}
                   style={styles.input}
                   keyboardType="email-address"
                   autoCapitalize="none"
@@ -285,7 +297,10 @@ export default function RegisterScreen() {
                   placeholderTextColor="#747d89"
                   secureTextEntry={!passwordVisible}
                   value={password}
-                  onChangeText={setPassword}
+                  onChangeText={(value) => {
+                    setPassword(value);
+                    if (errorMessage) setErrorMessage("");
+                  }}
                   style={styles.input}
                   textContentType="newPassword"
                   autoCapitalize="none"
@@ -502,6 +517,28 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     marginTop: 4,
+  },
+
+  errorBox: {
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.36)",
+    backgroundColor: "rgba(239, 68, 68, 0.12)",
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    marginBottom: 14,
+  },
+
+  errorText: {
+    flex: 1,
+    color: "#ffb4b4",
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "800",
+    marginLeft: 8,
   },
 
   form: {

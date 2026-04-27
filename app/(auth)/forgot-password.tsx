@@ -2,6 +2,7 @@ import { useAuth } from "@/components/auth-context";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { saveLanguage } from "@/storage/language-store";
+import { localizeAuthError } from "@/utils/auth-error";
 
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -68,6 +69,7 @@ export default function ForgotPasswordScreen() {
   const { t, i18n } = useTranslation(["auth", "settings", "common"]);
 
   const [email, setEmail] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [languageBusy, setLanguageBusy] = useState(false);
 
@@ -104,21 +106,21 @@ export default function ForgotPasswordScreen() {
     if (!canSubmit) return;
 
     setLoading(true);
+    setErrorMessage("");
 
     try {
       const res = await requestPasswordReset(cleanEmail);
 
       if (!res.ok) {
-        Alert.alert(
-          t("auth:resetPasswordTitle", { defaultValue: "Reset password" }),
-          res.message ?? t("auth:resetPasswordError", { defaultValue: "Could not send reset instructions." }),
-        );
+        setErrorMessage(localizeAuthError(res.message, t));
         return;
       }
 
       Alert.alert(
         t("auth:resetPasswordTitle", { defaultValue: "Reset password" }),
-        res.message ?? t("auth:resetPasswordSuccess", { defaultValue: "Password reset instructions were sent." }),
+        t("auth:resetPasswordSuccess", {
+          defaultValue: "Password reset link sent. Check your inbox and spam folder.",
+        }),
         [
           {
             text: t("common:ok", { defaultValue: "OK" }),
@@ -127,10 +129,7 @@ export default function ForgotPasswordScreen() {
         ],
       );
     } catch (error: any) {
-      Alert.alert(
-        t("auth:resetPasswordTitle", { defaultValue: "Reset password" }),
-        error?.message ?? t("common:unexpectedError", { defaultValue: "Unexpected error" }),
-      );
+      setErrorMessage(localizeAuthError(error, t));
     } finally {
       setLoading(false);
     }
@@ -197,6 +196,13 @@ export default function ForgotPasswordScreen() {
             </View>
 
             <View style={styles.form}>
+              {errorMessage ? (
+                <View style={styles.errorBox}>
+                  <Ionicons name="alert-circle-outline" size={18} color="#ff8a8a" />
+                  <ThemedText style={styles.errorText}>{errorMessage}</ThemedText>
+                </View>
+              ) : null}
+
               <View style={styles.inputWrap}>
                 <Ionicons name="mail-outline" size={18} color={UI.muted} style={styles.inputIcon} />
 
@@ -204,7 +210,10 @@ export default function ForgotPasswordScreen() {
                   placeholder={t("auth:email", { defaultValue: "Email" })}
                   placeholderTextColor="#747d89"
                   value={email}
-                  onChangeText={setEmail}
+                  onChangeText={(value) => {
+                    setEmail(value);
+                    if (errorMessage) setErrorMessage("");
+                  }}
                   style={styles.input}
                   keyboardType="email-address"
                   autoCapitalize="none"
@@ -380,6 +389,27 @@ const styles = StyleSheet.create({
 
   form: {
     gap: 12,
+  },
+
+  errorBox: {
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.36)",
+    backgroundColor: "rgba(239, 68, 68, 0.12)",
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+  },
+
+  errorText: {
+    flex: 1,
+    color: "#ffb4b4",
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "800",
+    marginLeft: 8,
   },
 
   inputWrap: {

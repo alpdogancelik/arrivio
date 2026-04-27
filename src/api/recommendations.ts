@@ -165,10 +165,12 @@ export const fetchStationRecommendation = async (
       if (bookingFacilityId && bookingFacilityId !== facilityId) continue;
     }
 
-    const status = normalizeBookingStatus(data.Booking_Status ?? data.status);
+    const status = normalizeBookingStatus(data.Booking_Status ?? data.bookingStatus ?? data.status ?? data.queueStatus);
     if (status !== 'completed') continue;
 
-    const completedAtIso = toIsoString(data.ServiceEndTime ?? data.serviceEndTime ?? data.UpdatedAt ?? data.updatedAt);
+    const completedAtIso = toIsoString(
+      data.ServiceEndTime ?? data.serviceEndTime ?? data.completedAt ?? data.UpdatedAt ?? data.updatedAt,
+    );
     const completedAtMs = completedAtIso ? new Date(completedAtIso).getTime() : NaN;
     if (!Number.isFinite(completedAtMs) || completedAtMs < sinceMs) continue;
 
@@ -184,9 +186,9 @@ export const fetchStationRecommendation = async (
     if (!stationId || !stationIdSet.has(stationId)) continue;
 
     const bookingSlot =
-      normalizeSlotLabel(data.Slot ?? data.slot) ??
-      (toIsoString(data.ArrivalTime ?? data.arrivalTime)
-        ? deriveSlotLabelFromIso(toIsoString(data.ArrivalTime ?? data.arrivalTime) ?? '')
+      normalizeSlotLabel(data.Slot ?? data.slot ?? data.slotKey ?? data.slotId) ??
+      (toIsoString(data.ArrivalTime ?? data.arrivalTime ?? data.queuedAt ?? data.slotStartAt)
+        ? deriveSlotLabelFromIso(toIsoString(data.ArrivalTime ?? data.arrivalTime ?? data.queuedAt ?? data.slotStartAt) ?? '')
         : undefined);
 
     if (bookingSlot !== slot) continue;

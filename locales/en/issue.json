@@ -17,6 +17,11 @@
   "required": "Description is required.",
   "submitted": "Submitted. We'll update you soon.",
   "failed": "Couldn't send report",
+  "cancelTitle": "Cancel report",
+  "cancelConfirm": "Do you want to cancel this report?",
+  "cancelAction": "Cancel report",
+  "cancelActionShort": "Cancel",
+  "cancelFailed": "Cancel failed",
   "delayed": "Late check-in / delayed entry",
   "equipment": "Equipment problem",
   "safety": "Safety",
@@ -30,8 +35,9 @@
   "nextTitle": "What happens next?",
   "nextBody": "Your report is routed to facility ops. Expect a response within 30 minutes and live updates in the Status tab.",
   "status": {
-    "open": "Open",
+    "open": "Waiting",
     "resolved": "Resolved",
-    "in_progress": "In progress"
+    "in_progress": "In progress",
+    "cancelled": "Cancelled"
   }
 }

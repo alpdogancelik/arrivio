@@ -17,6 +17,11 @@
   "required": "Devam etmek için kısa bir açıklama ekle.",
   "submitted": "Rapor gönderildi. Gelişmeleri burada paylaşacağız.",
   "failed": "Rapor gönderilemedi",
+  "cancelTitle": "Raporu iptal et",
+  "cancelConfirm": "Bu raporu iptal etmek istiyor musun?",
+  "cancelAction": "Raporu iptal et",
+  "cancelActionShort": "İptal",
+  "cancelFailed": "İptal başarısız",
   "delayed": "Geç check-in / gecikmeli giriş",
   "equipment": "Ekipman sorunu",
   "safety": "Güvenlik",
@@ -30,8 +35,9 @@
   "nextTitle": "Sonra ne olacak?",
   "nextBody": "Raporun tesis operasyon ekibine iletilir. 30 dakika içinde yanıt bekleyebilir, güncellemeleri Durum sekmesinden takip edebilirsin.",
   "status": {
-    "open": "Açık",
+    "open": "Bekliyor",
     "resolved": "Çözüldü",
-    "in_progress": "İşlemde"
+    "in_progress": "İşlemde",
+    "cancelled": "İptal edildi"
   }
 }

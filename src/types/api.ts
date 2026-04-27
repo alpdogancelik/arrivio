@@ -66,6 +66,7 @@ export type BookingStatus = z.infer<typeof BookingStatusSchema>;
 
 export const BookingSchema = z.object({
   id: z.string(),
+  firestoreId: z.string().optional(),
   facilityId: z.string(),
   facilityName: z.string().optional(),
   stationId: z.string(),
@@ -84,17 +85,19 @@ export const BookingSchema = z.object({
 });
 export type Booking = z.infer<typeof BookingSchema>;
 
-export const IssueStatusSchema = z.enum(['open', 'in_progress', 'resolved']);
+export const IssueStatusSchema = z.enum(['open', 'in_progress', 'resolved', 'cancelled']);
 export type IssueStatus = z.infer<typeof IssueStatusSchema>;
 
 export const IssueSchema = z.object({
   id: z.string(),
+  firestoreId: z.string().optional(),
   bookingId: z.string().optional(),
   category: z.string(),
   description: z.string(),
   photoUrl: z.string().optional(),
   status: IssueStatusSchema.optional(),
   createdAt: z.string().optional(),
+  sourceCollection: z.string().optional(),
 });
 export type Issue = z.infer<typeof IssueSchema>;
 

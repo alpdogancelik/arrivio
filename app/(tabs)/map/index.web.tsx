@@ -235,8 +235,7 @@ const SelectedStationCard = memo(function SelectedStationCard(props: {
   queueLabel: string;
   etaLabel: string;
   trucksLabel: string;
-  minsLabel: string;
-  unavailableLabel: string;
+  estimatePromptLabel: string;
   bookLabel: string;
   directionsLabel: string;
   onBook: () => void;
@@ -248,8 +247,7 @@ const SelectedStationCard = memo(function SelectedStationCard(props: {
     queueLabel,
     etaLabel,
     trucksLabel,
-    minsLabel,
-    unavailableLabel,
+    estimatePromptLabel,
     bookLabel,
     directionsLabel,
     onBook,
@@ -287,7 +285,7 @@ const SelectedStationCard = memo(function SelectedStationCard(props: {
 
         <View style={styles.metric}>
           <Text style={styles.metricLabel}>{etaLabel}</Text>
-          <Text style={styles.metricValue}>{selected.etaMin == null ? unavailableLabel : minsLabel}</Text>
+          <Text style={styles.metricValue}>{estimatePromptLabel}</Text>
         </View>
       </View>
 
@@ -443,11 +441,7 @@ export default function MapScreen() {
             count: selected.queueLength,
             defaultValue: `${selected.queueLength} trucks`,
           })}
-          minsLabel={t('common:mins', {
-            count: selected.etaMin ?? 0,
-            defaultValue: `${selected.etaMin ?? 0} min`,
-          })}
-          unavailableLabel={t('common:notAvailable', { defaultValue: 'Not available' })}
+          estimatePromptLabel={t('map:selectSlotForEstimate', { defaultValue: 'Select slot for estimate' })}
           bookLabel={t('map:bookSlot', { defaultValue: 'Book a slot' })}
           directionsLabel={t('map:directions', { defaultValue: 'Directions' })}
           onBook={handleBook}
@@ -461,12 +455,9 @@ export default function MapScreen() {
           getMetaLabel={(station) =>
             t('map:stationMeta', {
               count: station.queueLength,
-              eta:
-                station.etaMin == null
-                  ? t('map:etaUnavailable', { defaultValue: 'ETA unavailable' })
-                  : t('common:mins', { count: station.etaMin, defaultValue: `${station.etaMin} min` }),
+              eta: t('map:selectSlotForEstimate', { defaultValue: 'Select slot for estimate' }),
               defaultValue: `${station.queueLength} trucks - ${
-                station.etaMin == null ? 'ETA unavailable' : `${station.etaMin} min`
+                t('map:selectSlotForEstimate', { defaultValue: 'Select slot for estimate' })
               }`,
             })
           }

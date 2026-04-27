@@ -11,6 +11,8 @@
   "updateFailedTitle": "Update failed",
   "updateFailedBody": "Something went wrong.",
   "accountDetails": "Account Details",
+  "carrierId": "Carrier ID",
+  "carrierIdValue": "Carrier ID: {{id}}",
   "firstName": "First Name",
   "lastName": "Last Name",
   "phone": "Phone",
@@ -30,7 +32,5 @@
   "availableLabel": "Available",
   "appSettings": "App Settings",
   "pushNotifications": "Push Notifications",
-  "autoAccept": "Auto-Accept Bookings",
-  "autoAcceptBookings": "Auto-Accept Bookings",
   "saveChanges": "Save changes"
 }

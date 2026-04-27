@@ -119,7 +119,6 @@ export default function ProfileScreen() {
   const [saving, setSaving] = useState(false);
 
   const [pushEnabled, setPushEnabled] = useState(true);
-  const [autoAccept, setAutoAccept] = useState(false);
 
   const initialForm: ProfileForm = useMemo(
     () => ({
@@ -148,6 +147,7 @@ export default function ProfileScreen() {
 
   const roleKey = String((user as any)?.role ?? "carrier");
   const roleLabel = t(`common:roles.${roleKey}`, { defaultValue: roleKey });
+  const carrierId = String((user as any)?.carrierId ?? (user as any)?.Carrier_ID ?? user?.id ?? "").trim();
   const availabilityLabel = form.available
     ? t("profile:available", { defaultValue: "Available" })
     : t("profile:unavailable", { defaultValue: "Unavailable" });
@@ -211,6 +211,12 @@ export default function ProfileScreen() {
               {user?.email ?? "—"}
             </ThemedText>
 
+            {carrierId ? (
+              <ThemedText style={styles.profileCarrierId} numberOfLines={1}>
+                {t("profile:carrierIdValue", { id: carrierId, defaultValue: `Carrier ID: ${carrierId}` })}
+              </ThemedText>
+            ) : null}
+
             <View style={styles.badgeRow}>
               <View style={styles.badgePrimary}>
                 <ThemedText style={styles.badgePrimaryText}>
@@ -263,6 +269,10 @@ export default function ProfileScreen() {
 
           {!editing ? (
             <View style={styles.infoBlock}>
+              <InfoRow
+                label={t("profile:carrierId", { defaultValue: "Carrier ID" })}
+                value={carrierId || "-"}
+              />
               <InfoRow label={t("profile:firstName", { defaultValue: "First Name" })} value={user?.name ?? "-"} />
               <InfoRow
                 label={t("profile:lastName", { defaultValue: "Last Name" })}
@@ -383,14 +393,6 @@ export default function ProfileScreen() {
               value={pushEnabled}
               onValueChange={setPushEnabled}
             />
-
-            <View style={styles.settingDivider} />
-
-            <SettingRow
-              label={t("profile:autoAcceptBookings", { defaultValue: "Auto-Accept Bookings" })}
-              value={autoAccept}
-              onValueChange={setAutoAccept}
-            />
           </View>
         </ThemedView>
       </ScrollView>
@@ -454,6 +456,13 @@ const styles = StyleSheet.create({
   profileEmail: {
     color: UI.muted,
     fontSize: 13,
+    marginTop: 4,
+  },
+
+  profileCarrierId: {
+    color: UI.mutedSoft,
+    fontSize: 11,
+    fontWeight: "800",
     marginTop: 4,
   },
 

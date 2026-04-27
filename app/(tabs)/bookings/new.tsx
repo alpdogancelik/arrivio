@@ -48,6 +48,7 @@ const COLORS = {
   danger: "#ef4444",
 };
 
+// Builds the selectable booking calendar: next 7 days and 15-minute slots.
 const makeDays = (count = 7) => {
   const out: Date[] = [];
   const d0 = new Date();
@@ -88,6 +89,7 @@ const toSlotLabel = (slot: Date) => {
   return `${hh}:${mm}`;
 };
 
+// Normalizes numeric values coming from the MM1 endpoint.
 const toFiniteNumber = (value: unknown): number | null => {
   if (typeof value === "number" && Number.isFinite(value)) return value;
 
@@ -115,6 +117,12 @@ const formatTimeLabel = (slot: Date, locale?: string) =>
 
 const formatDayLabel = (day: Date, locale?: string) =>
   day.toLocaleDateString(locale || undefined, { weekday: "short" });
+
+// Rho is shown to carriers as a readable station load percentage.
+const formatLoadPercent = (rho: number) => {
+  if (!Number.isFinite(rho)) return 0;
+  return Math.max(0, Math.round(rho * 100));
+};
 
 type StationOption = {
   id: string;
@@ -162,6 +170,7 @@ type RecommendationProps = {
   stationsLabel: string;
   stationsCaption: string;
   waitUnknownText: string;
+  loadLabel: string;
   exactEstimateLabel: string;
   formatWaitText: (waitMin: number | null) => string;
   formatWaitShortText: (waitMin: number | null) => string;
@@ -181,6 +190,7 @@ type ConfirmPanelProps = {
   pendingLabel: string;
 };
 
+// Small UI pieces kept local so the booking flow stays in one screen file.
 const Header = memo(function Header(props: { title: string; subtitle: string; onBack: () => void }) {
   const { title, subtitle, onBack } = props;
 
@@ -354,12 +364,14 @@ const RecommendationSection = memo(function RecommendationSection(props: Recomme
     stationsLabel,
     stationsCaption,
     waitUnknownText,
+    loadLabel,
     exactEstimateLabel,
     formatWaitText,
     formatWaitShortText,
     onSelectStation,
   } = props;
 
+  // Recommendation UI mirrors the MM1 request lifecycle for the selected slot.
   if (!selectedSlot) {
     return (
       <CompactState
@@ -444,8 +456,8 @@ const RecommendationSection = memo(function RecommendationSection(props: Recomme
 
                   <Text style={styles.stationMeta} numberOfLines={2}>
                     {typeof station.waitMin === "number"
-                      ? `${formatWaitShortText(station.waitMin)} • rho=${station.rho.toFixed(2)}`
-                      : `${waitUnknownText} • rho=${station.rho.toFixed(2)}`}
+                      ? `${formatWaitShortText(station.waitMin)} • ${formatLoadPercent(station.rho)}% ${loadLabel}`
+                      : `${waitUnknownText} • ${formatLoadPercent(station.rho)}% ${loadLabel}`}
                   </Text>
 
                   {typeof station.waitMin === "number" && station.waitMin > 0 && station.waitMin < 1 ? (
@@ -561,6 +573,7 @@ export default function NewBookingScreen() {
   const { t, i18n } = useTranslation(["booking", "common", "home"]);
   const { user } = useAuth();
 
+  // Base data used to build station labels, facility labels, and active-booking guards.
   const { data: facilitiesRaw } = useQuery({
     queryKey: queryKeys.facilities(),
     queryFn: fetchFacilities,
@@ -603,6 +616,7 @@ export default function NewBookingScreen() {
 
   const stationById = useMemo(() => new Map(stations.map((station) => [station.id, station] as const)), [stations]);
 
+  // Slot selection state. Changing day or time resets the chosen station recommendation.
   const days = useMemo(() => makeDays(7), []);
   const [dayIdx, setDayIdx] = useState(0);
   const [selectedSlot, setSelectedSlot] = useState<Date | null>(null);
@@ -635,8 +649,9 @@ export default function NewBookingScreen() {
     staleTime: 60_000,
   });
 
+  // Formats MM1 wait output for both the highlighted recommendation and station list rows.
   const formatWaitText = (waitMin: number | null) => {
-    if (waitMin === null) return t("booking:waitUnknown", { defaultValue: "Waiting time unavailable" });
+    if (waitMin === null) return t("booking:waitUnknown", { defaultValue: "No wait time" });
 
     if (waitMin > 0 && waitMin < 1) {
       return t("booking:waitUnderOneMinLong", { defaultValue: "Estimated wait under 1 min" });
@@ -649,7 +664,7 @@ export default function NewBookingScreen() {
   };
 
   const formatWaitShortText = (waitMin: number | null) => {
-    if (waitMin === null) return t("booking:waitUnknown", { defaultValue: "Waiting time unavailable" });
+    if (waitMin === null) return t("booking:waitUnknown", { defaultValue: "No wait time" });
 
     if (waitMin > 0 && waitMin < 1) {
       return t("booking:waitUnderOneMinShort", { defaultValue: "Wait under 1 min" });
@@ -664,6 +679,7 @@ export default function NewBookingScreen() {
   const stationOptions = useMemo<StationOption[]>(() => {
     const rows = mm1Data?.stations ?? [];
 
+    // Map raw MM1 rows to UI rows, preserving lambda/mu/rho for display and sorting.
     const mapped = rows.map((row) => {
       const station = stationById.get(row.stationId);
       const rawWait = toFiniteNumber(row.approximatedWaitingTime);
@@ -708,6 +724,7 @@ export default function NewBookingScreen() {
     return stationOptions.find((s) => s.id === bestStationId) ?? null;
   }, [bestStationId, stationOptions]);
 
+  // Auto-select the backend recommendation unless the carrier manually picked another station.
   useEffect(() => {
     if (!selectedSlot) return;
     if (userPickedStation) return;
@@ -740,6 +757,7 @@ export default function NewBookingScreen() {
     setUserPickedStation(false);
   };
 
+  // Final submit calls the existing enterQueue function; this screen does not write bookings directly.
   const onConfirm = async () => {
     if (activeExistingBooking) {
       Alert.alert(
@@ -910,7 +928,8 @@ export default function NewBookingScreen() {
             stationsCaption={t("booking:stationsCaption", {
               defaultValue: "You can keep the recommendation or choose another station.",
             })}
-            waitUnknownText={t("booking:waitUnknown", { defaultValue: "Waiting time unavailable" })}
+            waitUnknownText={t("booking:waitUnknown", { defaultValue: "No wait time" })}
+            loadLabel={t("booking:load", { defaultValue: "load" })}
             exactEstimateLabel={t("booking:exactEstimate", { defaultValue: "Exact estimate: {{count}} min" })}
             formatWaitText={formatWaitText}
             formatWaitShortText={formatWaitShortText}

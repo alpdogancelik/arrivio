@@ -11,6 +11,8 @@
   "updateFailedTitle": "Güncelleme başarısız",
   "updateFailedBody": "Bir şeyler ters gitti.",
   "accountDetails": "Hesap bilgileri",
+  "carrierId": "Taşıyıcı ID",
+  "carrierIdValue": "Taşıyıcı ID: {{id}}",
   "firstName": "Ad",
   "lastName": "Soyad",
   "phone": "Telefon",
@@ -30,7 +32,5 @@
   "availableLabel": "Uygun",
   "appSettings": "Uygulama ayarları",
   "pushNotifications": "Bildirimler",
-  "autoAccept": "Rezervasyonları otomatik kabul et",
-  "autoAcceptBookings": "Rezervasyonları otomatik kabul et",
   "saveChanges": "Değişiklikleri kaydet"
 }

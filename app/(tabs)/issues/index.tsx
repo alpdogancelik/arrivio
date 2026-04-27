@@ -1,6 +1,6 @@
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
-import { createIssue, fetchIssues } from "@/api/issues";
+import { cancelIssue, createIssue, fetchIssues } from "@/api/issues";
 import { mapApiError } from "@/api/errors";
 import { images } from "@/constants/images";
 import { queryKeys } from "@/query/keys";
@@ -8,7 +8,7 @@ import { queryKeys } from "@/query/keys";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -82,6 +82,14 @@ const getIssueStatus = (status: string | undefined, t: (key: string, options?: R
     };
   }
 
+  if (raw === "cancelled") {
+    return {
+      label: t("issue:status.cancelled", { defaultValue: "Cancelled" }),
+      color: UI.muted,
+      icon: "close-circle-outline" as const,
+    };
+  }
+
   return {
     label: t("issue:status.open", { defaultValue: "Open" }),
     color: UI.red,
@@ -92,6 +100,7 @@ const getIssueStatus = (status: string | undefined, t: (key: string, options?: R
 export default function IssueScreen() {
   const { t } = useTranslation(["issue", "common"]);
   const insets = useSafeAreaInsets();
+  const queryClient = useQueryClient();
 
   const [desc, setDesc] = useState("");
   const [category, setCategory] = useState<IssueCategory>("delayed");
@@ -141,6 +150,38 @@ export default function IssueScreen() {
     onError: (error) => {
       const err = mapApiError(error);
       Alert.alert(t("issue:failed", { defaultValue: "Submission failed" }), err.message);
+    },
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: cancelIssue,
+    onMutate: async (issue: any) => {
+      const key = queryKeys.issues();
+      await queryClient.cancelQueries({ queryKey: key });
+      const previousIssues = queryClient.getQueryData<any[]>(key);
+
+      queryClient.setQueryData<any[]>(key, (current = []) =>
+        current.map((item) => {
+          const sameDoc =
+            (issue?.firestoreId && item?.firestoreId === issue.firestoreId) ||
+            item?.id === issue?.id;
+
+          return sameDoc ? { ...item, status: "cancelled" } : item;
+        }),
+      );
+
+      return { previousIssues };
+    },
+    onSuccess: async () => {
+      await refetchIssues();
+    },
+    onError: (error, _issue, context) => {
+      const err = mapApiError(error);
+      queryClient.setQueryData(queryKeys.issues(), context?.previousIssues);
+      Alert.alert(t("issue:cancelFailed", { defaultValue: "Cancel failed" }), err.message);
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.issues() });
     },
   });
 
@@ -195,6 +236,35 @@ export default function IssueScreen() {
   };
 
   const canSubmit = desc.trim().length > 0 && !mutation.isPending;
+
+  const confirmCancelIssue = (issue: any) => {
+    if (!issue?.id || issue?.status === "cancelled" || issue?.status === "resolved" || cancelMutation.isPending) {
+      return;
+    }
+
+    const title = t("issue:cancelTitle", { defaultValue: "Cancel report" });
+    const message = t("issue:cancelConfirm", { defaultValue: "Do you want to cancel this report?" });
+
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      if (window.confirm(message)) {
+        cancelMutation.mutate(issue);
+      }
+      return;
+    }
+
+    Alert.alert(
+      title,
+      message,
+      [
+        { text: t("common:no", { defaultValue: "No" }), style: "cancel" },
+        {
+          text: t("issue:cancelAction", { defaultValue: "Cancel report" }),
+          style: "destructive",
+          onPress: () => cancelMutation.mutate(issue),
+        },
+      ],
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -398,16 +468,23 @@ export default function IssueScreen() {
             <View style={styles.issueList}>
               {recentIssues.map((issue: any, index) => {
                 const status = getIssueStatus(issue?.status, t);
+                const issueDisplayId = String(issue?.firestoreId ?? issue?.id ?? "").trim();
                 const categoryLabel = t(`issue:${String(issue?.category ?? "other")}`, {
                   defaultValue: String(issue?.category ?? t("issue:other", { defaultValue: "Other" })),
                 });
 
                 return (
                   <View
-                    key={issue?.id ?? `${issue?.createdAt}-${index}`}
+                    key={issueDisplayId || `${issue?.createdAt}-${index}`}
                     style={[styles.issueRow, index !== recentIssues.length - 1 && styles.issueRowDivider]}
                   >
                     <View style={styles.issueRowLeft}>
+                      {issueDisplayId ? (
+                        <ThemedText style={styles.issueId} numberOfLines={1}>
+                          #{issueDisplayId}
+                        </ThemedText>
+                      ) : null}
+
                       <ThemedText style={styles.issueCategory} numberOfLines={1}>
                         {categoryLabel}
                       </ThemedText>
@@ -421,19 +498,39 @@ export default function IssueScreen() {
                       </ThemedText>
                     </View>
 
-                    <View
-                      style={[
-                        styles.issueStatus,
-                        {
-                          borderColor: `${status.color}44`,
-                          backgroundColor: `${status.color}16`,
-                        },
-                      ]}
-                    >
-                      <Ionicons name={status.icon} size={13} color={status.color} />
-                      <ThemedText style={[styles.issueStatusText, { color: status.color }]}>
-                        {status.label}
-                      </ThemedText>
+                    <View style={styles.issueActions}>
+                      <View
+                        style={[
+                          styles.issueStatus,
+                          {
+                            borderColor: `${status.color}44`,
+                            backgroundColor: `${status.color}16`,
+                          },
+                        ]}
+                      >
+                        <Ionicons name={status.icon} size={13} color={status.color} />
+                        <ThemedText style={[styles.issueStatusText, { color: status.color }]}>
+                          {status.label}
+                        </ThemedText>
+                      </View>
+
+                      {issue?.status !== "cancelled" && issue?.status !== "resolved" ? (
+                        <Pressable
+                          onPress={() => confirmCancelIssue(issue)}
+                          disabled={cancelMutation.isPending}
+                          style={({ pressed }) => [
+                            styles.cancelIssueButton,
+                            pressed && !cancelMutation.isPending && styles.pressed,
+                            cancelMutation.isPending && styles.cancelIssueButtonDisabled,
+                          ]}
+                          accessibilityRole="button"
+                        >
+                          <Ionicons name="close-outline" size={13} color={UI.red} />
+                          <ThemedText style={styles.cancelIssueText}>
+                            {t("issue:cancelActionShort", { defaultValue: "Cancel" })}
+                          </ThemedText>
+                        </Pressable>
+                      ) : null}
                     </View>
                   </View>
                 );
@@ -833,6 +930,13 @@ const styles = StyleSheet.create({
     paddingRight: 10,
   },
 
+  issueId: {
+    color: UI.primary,
+    fontSize: 10,
+    fontWeight: "900",
+    marginBottom: 4,
+  },
+
   issueCategory: {
     color: UI.text,
     fontSize: 13,
@@ -862,10 +966,37 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
 
+  issueActions: {
+    alignItems: "flex-end",
+    gap: 8,
+  },
+
   issueStatusText: {
     fontSize: 10,
     fontWeight: "900",
     marginLeft: 4,
+  },
+
+  cancelIssueButton: {
+    minHeight: 30,
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#ef444440",
+    backgroundColor: "rgba(239, 68, 68, 0.12)",
+    paddingHorizontal: 9,
+  },
+
+  cancelIssueButtonDisabled: {
+    opacity: 0.55,
+  },
+
+  cancelIssueText: {
+    color: UI.red,
+    fontSize: 10,
+    fontWeight: "900",
+    marginLeft: 3,
   },
 
   emptyRecent: {

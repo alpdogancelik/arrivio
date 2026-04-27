@@ -1,7 +1,18 @@
 import type { Booking, BookingStatus } from '@/types/api';
 import { auth, db } from '@/services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from 'firebase/firestore';
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  query,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  where,
+} from 'firebase/firestore';
 
 const ensureDb = () => {
   if (!db) {
@@ -75,7 +86,7 @@ const toIsoString = (value: any) => {
 };
 
 const normalizeBookingStatus = (value: unknown): BookingStatus => {
-  const raw = String(value ?? '').toLowerCase();
+  const raw = String(value ?? '').trim().toLowerCase();
   if (
     raw === 'pending' ||
     raw === 'confirmed' ||
@@ -86,18 +97,32 @@ const normalizeBookingStatus = (value: unknown): BookingStatus => {
   ) {
     return raw as BookingStatus;
   }
-  if (raw === 'active') return 'confirmed';
-  if (raw === 'serving' || raw === 'inservice' || raw === 'in_service') return 'servicing';
+  if (raw === 'active' || raw === 'waiting' || raw === 'queued') return 'pending';
+  if (raw === 'approved' || raw === 'accepted') return 'confirmed';
+  if (
+    raw === 'serving' ||
+    raw === 'serviced' ||
+    raw === 'inservice' ||
+    raw === 'in_service' ||
+    raw === 'in service' ||
+    raw === 'started' ||
+    raw === 'processing'
+  ) {
+    return 'servicing';
+  }
   if (raw === 'canceled') return 'cancelled';
-  if (raw === 'complete') return 'completed';
+  if (raw === 'complete' || raw === 'done' || raw === 'solved') return 'completed';
   return 'pending';
 };
 
 const mapBooking = (id: string, data: Record<string, any>): Booking => {
-  const arrivalTime = toIsoString(data.ArrivalTime ?? data.arrivalTime) ?? new Date().toISOString();
-  const slot = toStringValue(data.Slot ?? data.slot);
+  const arrivalTime =
+    toIsoString(data.ArrivalTime ?? data.arrivalTime ?? data.queuedAt ?? data.slotStartAt) ??
+    new Date().toISOString();
+  const slot = toStringValue(data.Slot ?? data.slot ?? data.slotKey ?? data.slotId);
   return {
     id: toStringValue(data.Booking_ID) ?? id,
+    firestoreId: id,
     facilityId:
       toStringValue(
         data.Facility_ID ??
@@ -129,7 +154,7 @@ const mapBooking = (id: string, data: Record<string, any>): Booking => {
     arrivalTime,
     slot: slot ?? undefined,
     etaMinutes: toNumberValue(data.EtaMinutes ?? data.etaMinutes),
-    status: normalizeBookingStatus(data.Booking_Status ?? data.status),
+    status: normalizeBookingStatus(data.Booking_Status ?? data.bookingStatus ?? data.status ?? data.queueStatus),
     recommendedStationId: toStringValue(
       data.RecommendedStationId ?? data.recommendedStationId ?? data.RecommendedStation_ID,
     ),
@@ -137,11 +162,31 @@ const mapBooking = (id: string, data: Record<string, any>): Booking => {
     recommendations: Array.isArray(data.Recommendations ?? data.recommendations)
       ? (data.Recommendations ?? data.recommendations)
       : undefined,
-    serviceStartTime: toIsoString(data.ServiceStartTime ?? data.serviceStartTime),
-    serviceEndTime: toIsoString(data.ServiceEndTime ?? data.serviceEndTime),
-    createdAt: toIsoString(data.CreatedAt ?? data.createdAt),
-    updatedAt: toIsoString(data.UpdatedAt ?? data.updatedAt),
+    serviceStartTime: toIsoString(data.ServiceStartTime ?? data.serviceStartTime ?? data.startedAt),
+    serviceEndTime: toIsoString(data.ServiceEndTime ?? data.serviceEndTime ?? data.completedAt),
+    createdAt: toIsoString(data.CreatedAt ?? data.createdAt ?? data.queuedAt),
+    updatedAt: toIsoString(data.UpdatedAt ?? data.updatedAt ?? data.completedAt ?? data.startedAt),
   };
+};
+
+const getBookingSnapById = async (id: string) => {
+  const database = ensureDb();
+  const directRef = doc(database, 'Booking', id);
+  const directSnap = await getDoc(directRef);
+
+  if (directSnap.exists()) {
+    return { ref: directRef, snap: directSnap };
+  }
+
+  const bookingCollection = collection(database, 'Booking');
+  const byBookingId = await getDocs(query(bookingCollection, where('Booking_ID', '==', id), limit(1)));
+  const matchedSnap = byBookingId.docs[0];
+
+  if (matchedSnap) {
+    return { ref: matchedSnap.ref, snap: matchedSnap };
+  }
+
+  return { ref: directRef, snap: directSnap };
 };
 
 export type ListBookingsParams = { status?: BookingStatus | 'all' };
@@ -192,8 +237,7 @@ export const fetchBookings = async (params?: ListBookingsParams) => {
 };
 
 export const fetchBooking = async (id: string) => {
-  const database = ensureDb();
-  const snap = await getDoc(doc(database, 'Booking', id));
+  const { snap } = await getBookingSnapById(id);
   if (!snap.exists()) {
     throw new Error('Booking not found');
   }
@@ -244,8 +288,8 @@ export const createBooking = async (payload: CreateBookingPayload) => {
 };
 
 export const updateBooking = async (id: string, payload: UpdateBookingPayload) => {
-  const database = ensureDb();
   await ensureUser();
+  const { ref } = await getBookingSnapById(id);
   const updates: Record<string, any> = { UpdatedAt: serverTimestamp() };
 
   if (payload.arrivalTime) {
@@ -259,8 +303,8 @@ export const updateBooking = async (id: string, payload: UpdateBookingPayload) =
     updates.Notes = payload.notes;
   }
 
-  await updateDoc(doc(database, 'Booking', id), updates);
-  const snap = await getDoc(doc(database, 'Booking', id));
+  await updateDoc(ref, updates);
+  const snap = await getDoc(ref);
   if (!snap.exists()) {
     throw new Error('Booking not found');
   }
@@ -269,13 +313,14 @@ export const updateBooking = async (id: string, payload: UpdateBookingPayload) =
 };
 
 export const cancelBooking = async (id: string, _reason?: string) => {
-  const database = ensureDb();
   await ensureUser();
-  await updateDoc(doc(database, 'Booking', id), {
+  const { ref } = await getBookingSnapById(id);
+  await updateDoc(ref, {
     Booking_Status: 'Cancelled',
     UpdatedAt: serverTimestamp(),
   });
-  const snap = await getDoc(doc(database, 'Booking', id));
+
+  const snap = await getDoc(ref);
   if (!snap.exists()) {
     throw new Error('Booking not found');
   }
@@ -283,13 +328,13 @@ export const cancelBooking = async (id: string, _reason?: string) => {
 };
 
 export const completeBooking = async (id: string) => {
-  const database = ensureDb();
   await ensureUser();
-  await updateDoc(doc(database, 'Booking', id), {
+  const { ref } = await getBookingSnapById(id);
+  await updateDoc(ref, {
     Booking_Status: 'Completed',
     UpdatedAt: serverTimestamp(),
   });
-  const snap = await getDoc(doc(database, 'Booking', id));
+  const snap = await getDoc(ref);
   if (!snap.exists()) {
     throw new Error('Booking not found');
   }

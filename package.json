@@ -10,7 +10,12 @@
     "web": "expo start --web",
     "build:web": "expo export --platform web",
     "vercel-build": "npm run build:web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "test:contracts:queue": "node tests/contracts/queue-contract.integration.test.cjs",
+    "test:integration:data": "node tests/integration/carrierFlow.integration.test.cjs",
+    "test:integration:data:live": "node tests/integration/carrierFlow.integration.test.cjs",
+    "test:integration:api": "node tests/contracts/queue-contract.integration.test.cjs",
+    "test:integration:all": "node tests/contracts/queue-contract.integration.test.cjs && node tests/integration/carrierFlow.integration.test.cjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

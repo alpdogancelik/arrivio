@@ -1,4 +1,4 @@
-import { db } from '@/services/firebase';
+﻿import { db } from '@/services/firebase';
 import { USE_MOCK_DATA } from '@/config/mock';
 import type { QueueEntry } from '@/types/api';
 import { collection, getDocs } from 'firebase/firestore';
@@ -24,9 +24,10 @@ const toNumberValue = (value: unknown) => {
 const normalizeQueueEntryStatus = (value: unknown) => {
   const raw = String(value ?? '').trim().toLowerCase();
   if (!raw) return undefined;
-  if (raw === 'waiting') return 'Waiting';
-  if (raw === 'servicing' || raw === 'serving' || raw === 'inservice' || raw === 'in_service') return 'Servicing';
+  if (raw === 'queued' || raw === 'waiting') return 'Queued';
+  if (raw === 'inprogress' || raw === 'servicing' || raw === 'serving' || raw === 'inservice' || raw === 'in_service') return 'InProgress';
   if (raw === 'completed' || raw === 'done') return 'Completed';
+  if (raw === 'cancelled' || raw === 'canceled') return 'Cancelled';
   return undefined;
 };
 
@@ -91,7 +92,7 @@ const mapQueueEntry = (id: string, data: Record<string, any>): QueueEntry => {
       data.Station_ID ?? data.stationId ?? data.StationId ?? data.Sation_ID ?? data.SationId,
     ),
     bookingId: toStringValue(data.Booking_ID ?? data.bookingId ?? data.booking_id) ?? null,
-    status: normalizeQueueEntryStatus(data.Status ?? data.status),
+    status: normalizeQueueEntryStatus(data.queueStatus ?? data.Status ?? data.status),
     entryTime,
     exitTime,
     waitingMinutes,
@@ -128,3 +129,4 @@ export const fetchQueueEntries = async (params?: ListQueueEntryParams) => {
 
   return entries;
 };
+

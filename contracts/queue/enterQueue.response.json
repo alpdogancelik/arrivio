@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "contracts/queue/enterQueue.response.json",
+  "title": "enterQueue response",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["message", "bookingId", "queueEntryId"],
+  "properties": {
+    "message": { "type": "string", "minLength": 1 },
+    "bookingId": { "type": "string", "minLength": 1 },
+    "queueEntryId": { "type": "string", "minLength": 1 },
+    "stationId": { "type": "string" },
+    "carrierId": { "type": "string" },
+    "queueStatus": { "type": "string" }
+  }
+}

@@ -1,4 +1,4 @@
-import { z } from 'zod';
+﻿import { z } from 'zod';
 
 export const RoleSchema = z.enum(['carrier', 'facility', 'admin', 'operator']).default('carrier');
 export type Role = z.infer<typeof RoleSchema>;
@@ -112,7 +112,7 @@ export const QueueEntrySchema = z.object({
   stationId: z.string().optional(),
   bookingId: z.string().optional().nullable(),
   facilityId: z.string().optional().nullable(),
-  status: z.enum(['Waiting', 'Servicing', 'Completed']).optional(),
+  status: z.enum(['Queued', 'InProgress', 'Completed', 'Cancelled']).optional(),
   entryTime: z.string().optional(),
   exitTime: z.string().optional(),
   waitingMinutes: z.number().optional(),
@@ -184,3 +184,4 @@ export const ReportSchema = z.object({
   createdAt: z.string().optional(),
 });
 export type Report = z.infer<typeof ReportSchema>;
+

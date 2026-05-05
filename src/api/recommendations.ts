@@ -165,7 +165,9 @@ export const fetchStationRecommendation = async (
       if (bookingFacilityId && bookingFacilityId !== facilityId) continue;
     }
 
-    const status = normalizeBookingStatus(data.Booking_Status ?? data.bookingStatus ?? data.status ?? data.queueStatus);
+    const status = normalizeBookingStatus(
+      data.Booking_Status ?? data.bookingStatus ?? data.bookingsStatus ?? data.status ?? data.queueStatus,
+    );
     if (status !== 'completed') continue;
 
     const completedAtIso = toIsoString(

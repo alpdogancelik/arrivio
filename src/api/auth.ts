@@ -1,6 +1,7 @@
 import { auth, db } from '@/services/firebase';
 import {
   createUserWithEmailAndPassword,
+  deleteUser,
   onAuthStateChanged,
   sendEmailVerification,
   sendPasswordResetEmail,
@@ -109,6 +110,10 @@ const mapCarrierProfile = (data: Record<string, any>) => ({
   vehiclePlate: toStringValue(data.Vehicle_Plate ?? data.vehiclePlate),
   capacity: toNumberValue(data.Capacity ?? data.capacity),
   available: toBooleanValue(data.Available ?? data.available ?? data.Status ?? data.status),
+  carrierStatus: toStringValue(data.Status ?? data.status),
+  blockReason: toStringValue(data.BlockReason ?? data.blockReason),
+  blockMessage: toStringValue(data.BlockMessage ?? data.blockMessage),
+  blockUntil: toStringValue(data.BlockUntil ?? data.blockUntil),
 });
 
 const fetchCarrierProfile = async (user: FirebaseUser) => {
@@ -169,6 +174,10 @@ const buildUser = (
     vehiclePlate: carrierProfile?.vehiclePlate,
     capacity: carrierProfile?.capacity,
     available: carrierProfile?.available,
+    carrierStatus: carrierProfile?.carrierStatus,
+    blockReason: carrierProfile?.blockReason,
+    blockMessage: carrierProfile?.blockMessage,
+    blockUntil: carrierProfile?.blockUntil,
   });
 };
 
@@ -198,34 +207,44 @@ export const login = async (payload: LoginPayload): Promise<LoginResult> => {
 export const register = async (payload: RegisterPayload): Promise<RegisterResult> => {
   const authClient = ensureAuth();
   const cred = await createUserWithEmailAndPassword(authClient, payload.email, payload.password);
-  const displayName = [payload.name, payload.surname].filter(Boolean).join(' ').trim();
-  if (displayName) {
-    await updateProfile(cred.user, { displayName });
+
+  try {
+    const displayName = [payload.name, payload.surname].filter(Boolean).join(' ').trim();
+    if (displayName) {
+      await updateProfile(cred.user, { displayName });
+    }
+
+    await ensureCarrierProfile(cred.user, {
+      name: payload.name,
+      surname: payload.surname,
+      email: payload.email,
+    });
+
+    await sendEmailVerification(cred.user);
+
+    const tokenResult = await cred.user.getIdTokenResult();
+    const fallbackRoleResult = RoleSchema.safeParse(payload.role);
+    const fallbackRole = fallbackRoleResult.success ? fallbackRoleResult.data : undefined;
+    const role = resolveRole(tokenResult.claims?.role, fallbackRole);
+    const carrierProfile = await fetchCarrierProfile(cred.user);
+    const user = buildUser(cred.user, role, { name: payload.name, surname: payload.surname }, carrierProfile);
+
+    await signOut(authClient);
+
+    return {
+      user,
+      tokens: null,
+      message:
+        'Please check the email address you entered to verify your account. It may have landed in your spam folder, so please check there as well.',
+    };
+  } catch (error) {
+    try {
+      await deleteUser(cred.user);
+    } catch {
+      await signOut(authClient);
+    }
+    throw error;
   }
-
-  await ensureCarrierProfile(cred.user, {
-    name: payload.name,
-    surname: payload.surname,
-    email: payload.email,
-  });
-
-  await sendEmailVerification(cred.user);
-
-  const tokenResult = await cred.user.getIdTokenResult();
-  const fallbackRoleResult = RoleSchema.safeParse(payload.role);
-  const fallbackRole = fallbackRoleResult.success ? fallbackRoleResult.data : undefined;
-  const role = resolveRole(tokenResult.claims?.role, fallbackRole);
-  const carrierProfile = await fetchCarrierProfile(cred.user);
-  const user = buildUser(cred.user, role, { name: payload.name, surname: payload.surname }, carrierProfile);
-
-  await signOut(authClient);
-
-  return {
-    user,
-    tokens: null,
-    message:
-      'Please check the email address you entered to verify your account. It may have landed in your spam folder, so please check there as well.',
-  };
 };
 
 export const requestPasswordReset = async (email: string): Promise<PasswordResetResult> => {
@@ -261,6 +280,9 @@ export const updateCarrierProfile = async (changes: Partial<User>) => {
   const user = await requireUser();
   const database = ensureDb();
   const ref = doc(database, 'Carrier', user.uid);
+  const currentSnap = await getDoc(ref);
+  const currentProfile = currentSnap.exists() ? mapCarrierProfile(currentSnap.data() as Record<string, any>) : null;
+  const isBlocked = String(currentProfile?.carrierStatus ?? '').toLowerCase() === 'blocked';
 
   const updates: Record<string, any> = {
     UpdatedAt: serverTimestamp(),
@@ -275,7 +297,9 @@ export const updateCarrierProfile = async (changes: Partial<User>) => {
   if (typeof changes.capacity !== 'undefined') updates.Capacity = changes.capacity;
   if (typeof changes.available !== 'undefined') {
     updates.Available = changes.available;
-    updates.Status = changes.available ? 'Active' : 'Inactive';
+    if (!isBlocked) {
+      updates.Status = changes.available ? 'Active' : 'Inactive';
+    }
   }
 
   const displayName = [changes.name, changes.surname].filter(Boolean).join(' ').trim();

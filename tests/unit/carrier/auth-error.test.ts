@@ -88,6 +88,13 @@ describe('carrier auth error localization', () => {
       expectedMessage: 'Network error. Check your connection.',
     },
     {
+      name: 'maps Firestore permission errors during registration',
+      error: { code: 'permission-denied' },
+      expectedKey: 'auth:errorPermissionDenied',
+      expectedMessage:
+        'Registration could not be completed because the carrier profile could not be saved.',
+    },
+    {
       name: 'falls back to a generic message for unknown errors',
       error: { code: 'auth/unexpected' },
       expectedKey: 'auth:errorGeneric',

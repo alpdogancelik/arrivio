@@ -7,7 +7,6 @@ import { queryKeys } from "@/query/keys";
 
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import * as ImagePicker from "expo-image-picker";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import React, { useMemo, useState } from "react";
 import {
@@ -25,12 +24,6 @@ import { useTranslation } from "react-i18next";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type IssueCategory = "delayed" | "equipment" | "safety" | "other";
-
-type SelectedPhoto = {
-  uri: string;
-  fileName?: string | null;
-  mimeType?: string | null;
-};
 
 const UI = {
   bg: "#08090b",
@@ -104,7 +97,6 @@ export default function IssueScreen() {
 
   const [desc, setDesc] = useState("");
   const [category, setCategory] = useState<IssueCategory>("delayed");
-  const [selectedPhoto, setSelectedPhoto] = useState<SelectedPhoto | null>(null);
 
   const {
     data: issuesRaw,
@@ -143,7 +135,6 @@ export default function IssueScreen() {
     mutationFn: createIssue,
     onSuccess: () => {
       setDesc("");
-      setSelectedPhoto(null);
       refetchIssues();
       Alert.alert(t("issue:title", { defaultValue: "Report an issue" }), t("issue:submitted"));
     },
@@ -185,41 +176,6 @@ export default function IssueScreen() {
     },
   });
 
-  const pickPhoto = async () => {
-    try {
-      if (Platform.OS !== "web") {
-        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-        if (!permission.granted) {
-          Alert.alert(t("issue:attach", { defaultValue: "Attach photo" }), t("issue:photoPermission"));
-          return;
-        }
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        quality: 0.8,
-      });
-
-      if (result.canceled || !result.assets?.length) return;
-
-      const asset = result.assets[0];
-
-      setSelectedPhoto({
-        uri: asset.uri,
-        fileName: asset.fileName ?? null,
-        mimeType: asset.mimeType ?? null,
-      });
-    } catch (error) {
-      const err = mapApiError(error);
-      Alert.alert(
-        t("issue:attach", { defaultValue: "Attach photo" }),
-        err.message || t("issue:attachFailed", { defaultValue: "Could not attach photo." }),
-      );
-    }
-  };
-
   const submit = () => {
     const clean = desc.trim();
 
@@ -231,7 +187,6 @@ export default function IssueScreen() {
     mutation.mutate({
       description: clean,
       category,
-      photo: selectedPhoto ?? undefined,
     });
   };
 
@@ -345,52 +300,6 @@ export default function IssueScreen() {
             textAlignVertical="top"
             autoCorrect
           />
-
-          <Pressable
-            onPress={pickPhoto}
-            style={({ pressed }) => [styles.attachCard, pressed && styles.pressed]}
-            accessibilityRole="button"
-          >
-            <View style={styles.attachIconWrap}>
-              <Ionicons name={selectedPhoto ? "image-outline" : "camera-outline"} size={18} color={UI.primary} />
-            </View>
-
-            <View style={styles.attachCopy}>
-              <ThemedText style={styles.attachTitle}>
-                {selectedPhoto
-                  ? t("issue:changePhoto", { defaultValue: "Change photo" })
-                  : t("issue:attach", { defaultValue: "Add photo" })}
-              </ThemedText>
-
-              <ThemedText style={styles.attachSubtitle}>
-                {selectedPhoto
-                  ? selectedPhoto.fileName || t("issue:selectedPhoto", { defaultValue: "Selected photo" })
-                  : t("issue:attachHint", {
-                      defaultValue: "Optional, helps facility ops understand faster.",
-                    })}
-              </ThemedText>
-            </View>
-          </Pressable>
-
-          {selectedPhoto ? (
-            <View style={styles.photoPreview}>
-              <Image source={{ uri: selectedPhoto.uri }} style={styles.photoPreviewImage} contentFit="cover" />
-
-              <View style={styles.photoPreviewContent}>
-                <ThemedText style={styles.photoPreviewTitle}>
-                  {t("issue:photoAttached", { defaultValue: "Photo attached" })}
-                </ThemedText>
-
-                <ThemedText style={styles.photoPreviewMeta} numberOfLines={1}>
-                  {selectedPhoto.fileName || t("issue:selectedPhoto", { defaultValue: "Selected photo" })}
-                </ThemedText>
-              </View>
-
-              <Pressable onPress={() => setSelectedPhoto(null)} style={styles.removePhotoButton}>
-                <Ionicons name="close-outline" size={18} color={UI.muted} />
-              </Pressable>
-            </View>
-          ) : null}
 
           <Pressable
             onPress={submit}
@@ -699,92 +608,6 @@ const styles = StyleSheet.create({
     color: UI.text,
     fontSize: 14,
     lineHeight: 20,
-  },
-
-  attachCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: UI.border,
-    backgroundColor: UI.cardSoft,
-    padding: 13,
-    marginTop: 12,
-  },
-
-  attachIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: UI.primarySoft,
-    borderWidth: 1,
-    borderColor: UI.primaryBorder,
-    marginRight: 12,
-  },
-
-  attachCopy: {
-    flex: 1,
-  },
-
-  attachTitle: {
-    color: UI.text,
-    fontSize: 13,
-    fontWeight: "900",
-  },
-
-  attachSubtitle: {
-    color: UI.muted,
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 3,
-  },
-
-  photoPreview: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: UI.border,
-    backgroundColor: UI.cardSoft,
-    padding: 10,
-    marginTop: 12,
-  },
-
-  photoPreviewImage: {
-    width: 54,
-    height: 54,
-    borderRadius: 12,
-    backgroundColor: "#050506",
-  },
-
-  photoPreviewContent: {
-    flex: 1,
-    paddingHorizontal: 12,
-  },
-
-  photoPreviewTitle: {
-    color: UI.text,
-    fontSize: 13,
-    fontWeight: "900",
-  },
-
-  photoPreviewMeta: {
-    color: UI.muted,
-    fontSize: 12,
-    marginTop: 4,
-  },
-
-  removePhotoButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: UI.border,
-    backgroundColor: "#090a0c",
   },
 
   button: {

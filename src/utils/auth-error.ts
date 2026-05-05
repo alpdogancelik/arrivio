@@ -33,5 +33,11 @@ export const localizeAuthError = (error: unknown, t: Translator) => {
     return t('auth:errorNetwork', { defaultValue: 'Network error. Check your connection.' });
   }
 
+  if (raw.includes('permission-denied') || raw.includes('missing or insufficient permissions')) {
+    return t('auth:errorPermissionDenied', {
+      defaultValue: 'Registration could not be completed because the carrier profile could not be saved.',
+    });
+  }
+
   return t('auth:errorGeneric', { defaultValue: 'Something went wrong. Please try again.' });
 };

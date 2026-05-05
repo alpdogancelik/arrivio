@@ -118,6 +118,18 @@ const formatTimeLabel = (slot: Date, locale?: string) =>
 const formatDayLabel = (day: Date, locale?: string) =>
   day.toLocaleDateString(locale || undefined, { weekday: "short" });
 
+const formatBlockUntil = (value?: string | null, locale?: string) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleDateString(locale || undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+};
+
 // Rho is shown to carriers as a readable station load percentage.
 const formatLoadPercent = (rho: number) => {
   if (!Number.isFinite(rho)) return 0;
@@ -596,6 +608,11 @@ export default function NewBookingScreen() {
   const facilities = useMemo(() => (Array.isArray(facilitiesRaw) ? facilitiesRaw : []), [facilitiesRaw]);
   const facility = facilities[0] ?? null;
   const locale = i18n.language || undefined;
+  const carrierStatus = String((user as any)?.carrierStatus ?? "").trim();
+  const isCarrierBlocked = carrierStatus.toLowerCase() === "blocked";
+  const blockReason = String((user as any)?.blockReason ?? "").trim();
+  const blockMessage = String((user as any)?.blockMessage ?? "").trim();
+  const blockUntil = formatBlockUntil((user as any)?.blockUntil, locale);
 
   const activeExistingBooking = useMemo(() => {
     const bookings = Array.isArray(existingBookingsRaw) ? existingBookingsRaw : [];
@@ -832,6 +849,33 @@ export default function NewBookingScreen() {
       Alert.alert(t("booking:bookingFailed", { defaultValue: "Booking failed" }));
     }
   };
+
+  if (isCarrierBlocked) {
+    const unblockText = blockUntil
+      ? t("booking:blockedUntil", { date: blockUntil, defaultValue: `Blocked until ${blockUntil}` })
+      : t("booking:blockedUntilManual", { defaultValue: "Until admin unblocks your account" });
+    const reasonText = blockReason
+      ? t("booking:blockedReason", { reason: blockReason, defaultValue: `Reason: ${blockReason}` })
+      : "";
+    const body = [blockMessage, reasonText, unblockText].filter(Boolean).join("\n");
+
+    return (
+      <BlockedBookingCard
+        headerTitle={t("booking:newBookingTitle", { defaultValue: "New booking" })}
+        headerSubtitle={t("booking:newBookingSubtitle", { defaultValue: "Plan your arrival window" })}
+        title={t("booking:carrierBlockedTitle", { defaultValue: "Account blocked" })}
+        body={
+          body ||
+          t("booking:carrierBlockedBody", {
+            defaultValue: "An admin has blocked this carrier account. Booking is disabled until unblock.",
+          })
+        }
+        actionLabel={t("booking:backToBookings", { defaultValue: "Back to bookings" })}
+        onBack={() => router.back()}
+        onManage={() => router.replace(ROUTES.list as unknown as Href)}
+      />
+    );
+  }
 
   if (activeExistingBooking) {
     const bookingId = activeExistingBooking?.id ? String(activeExistingBooking.id) : "";

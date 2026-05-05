@@ -248,6 +248,27 @@ describe('carrier bookings api', () => {
     expect(mockWhere).toHaveBeenCalledWith('carrier_id', '==', 'carrier-1');
   });
 
+  it('uses newer booking status fields when the legacy pending field is stale', async () => {
+    seedBooking('firestore-in-progress', {
+      Booking_ID: 'booking-in-progress',
+      carrierId: 'carrier-1',
+      Facility_ID: 'facility-1',
+      Station_ID: 'station-1',
+      ArrivalTime: '2026-05-06T08:00:00.000Z',
+      Booking_Status: 'Pending',
+      bookingsStatus: 'InProgress',
+      queueStatus: 'InProgress',
+    });
+
+    const booking = await fetchBooking('firestore-in-progress');
+
+    expect(booking).toMatchObject({
+      id: 'booking-in-progress',
+      firestoreId: 'firestore-in-progress',
+      status: 'servicing',
+    });
+  });
+
   it('creates a booking with carrier ownership, station details, and recommendation metadata', async () => {
     const booking = await createBooking({
       facilityId: 'facility-1',

@@ -26,6 +26,10 @@ export const UserSchema = z.object({
   vehiclePlate: z.string().optional().nullable(),
   capacity: z.number().optional().nullable(),
   available: z.boolean().optional(),
+  carrierStatus: z.string().optional().nullable(),
+  blockReason: z.string().optional().nullable(),
+  blockMessage: z.string().optional().nullable(),
+  blockUntil: z.string().optional().nullable(),
 });
 export type User = z.infer<typeof UserSchema>;
 

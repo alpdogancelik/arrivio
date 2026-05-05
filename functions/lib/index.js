@@ -756,6 +756,27 @@ const resolveBookingIds = (data) => ({
         data.facility_id ??
         data.Facility) ?? undefined,
 });
+const syncCancelledBookingState = async (bookingDocId, booking) => {
+    const updates = {
+        bookingStatus: 'Cancelled',
+        queueStatus: 'Cancelled',
+        UpdatedAt: firestore_1.FieldValue.serverTimestamp(),
+    };
+    await db.collection('Booking').doc(bookingDocId).set(updates, { merge: true });
+    const queueEntryId = toStringValue(booking.queueEntryId ?? booking.QueueEntry_ID ?? booking.QueueEntryId);
+    if (queueEntryId) {
+        await db
+            .collection('QueueEntry')
+            .doc(queueEntryId)
+            .set({
+            status: 'Cancelled',
+            queueStatus: 'Cancelled',
+            updatedAt: firestore_1.FieldValue.serverTimestamp(),
+            UpdatedAt: firestore_1.FieldValue.serverTimestamp(),
+        }, { merge: true })
+            .catch((err) => logger.debug('QueueEntry cancel sync by id failed', err));
+    }
+};
 exports.onBookingCompleted = (0, firestore_2.onDocumentUpdated)({ document: 'Booking/{bookingId}', region: 'europe-west3' }, async (event) => {
     const before = event.data?.before.data();
     const after = event.data?.after.data();
@@ -763,9 +784,15 @@ exports.onBookingCompleted = (0, firestore_2.onDocumentUpdated)({ document: 'Boo
         return;
     const beforeStatus = normalizeBookingStatus(before.Booking_Status ?? before.status);
     const afterStatus = normalizeBookingStatus(after.Booking_Status ?? after.status);
-    if (beforeStatus === afterStatus || afterStatus !== 'completed')
+    if (beforeStatus === afterStatus)
         return;
     const bookingId = String(event.params.bookingId);
+    if (afterStatus === 'cancelled') {
+        await syncCancelledBookingState(bookingId, after);
+        return;
+    }
+    if (afterStatus !== 'completed')
+        return;
     const ids = resolveBookingIds(after);
     const stationId = ids.stationId ?? 'unknown';
     const carrierId = ids.carrierId ?? 'unknown';

@@ -105,6 +105,9 @@ const normalizeBookingStatus = (value: unknown): BookingStatus => {
     raw === 'inservice' ||
     raw === 'in_service' ||
     raw === 'in service' ||
+    raw === 'inprogress' ||
+    raw === 'in_progress' ||
+    raw === 'in progress' ||
     raw === 'started' ||
     raw === 'processing'
   ) {
@@ -113,6 +116,24 @@ const normalizeBookingStatus = (value: unknown): BookingStatus => {
   if (raw === 'canceled') return 'cancelled';
   if (raw === 'complete' || raw === 'done' || raw === 'solved') return 'completed';
   return 'pending';
+};
+
+const resolveBookingStatus = (data: Record<string, any>): BookingStatus => {
+  const candidates = [
+    data.bookingStatus,
+    data.bookingsStatus,
+    data.Booking_Status,
+    data.status,
+    data.queueStatus,
+  ];
+  const normalized = candidates
+    .filter((value) => typeof value !== 'undefined' && value !== null)
+    .map(normalizeBookingStatus);
+
+  if (normalized.includes('cancelled')) return 'cancelled';
+  if (normalized.includes('completed')) return 'completed';
+
+  return normalized.find((status) => status !== 'pending') ?? normalized[0] ?? 'pending';
 };
 
 const mapBooking = (id: string, data: Record<string, any>): Booking => {
@@ -154,7 +175,7 @@ const mapBooking = (id: string, data: Record<string, any>): Booking => {
     arrivalTime,
     slot: slot ?? undefined,
     etaMinutes: toNumberValue(data.EtaMinutes ?? data.etaMinutes),
-    status: normalizeBookingStatus(data.Booking_Status ?? data.bookingStatus ?? data.status ?? data.queueStatus),
+    status: resolveBookingStatus(data),
     recommendedStationId: toStringValue(
       data.RecommendedStationId ?? data.recommendedStationId ?? data.RecommendedStation_ID,
     ),

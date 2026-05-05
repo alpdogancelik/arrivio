@@ -70,6 +70,7 @@ export default function ForgotPasswordScreen() {
 
   const [email, setEmail] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [resetLinkSent, setResetLinkSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [languageBusy, setLanguageBusy] = useState(false);
 
@@ -107,6 +108,7 @@ export default function ForgotPasswordScreen() {
 
     setLoading(true);
     setErrorMessage("");
+    setResetLinkSent(false);
 
     try {
       const res = await requestPasswordReset(cleanEmail);
@@ -116,18 +118,7 @@ export default function ForgotPasswordScreen() {
         return;
       }
 
-      Alert.alert(
-        t("auth:resetPasswordTitle", { defaultValue: "Reset password" }),
-        t("auth:resetPasswordSuccess", {
-          defaultValue: "Password reset link sent. Check your inbox and spam folder.",
-        }),
-        [
-          {
-            text: t("common:ok", { defaultValue: "OK" }),
-            onPress: () => router.replace("/login"),
-          },
-        ],
-      );
+      setResetLinkSent(true);
     } catch (error: any) {
       setErrorMessage(localizeAuthError(error, t));
     } finally {
@@ -203,6 +194,17 @@ export default function ForgotPasswordScreen() {
                 </View>
               ) : null}
 
+              {resetLinkSent ? (
+                <View style={styles.successBox}>
+                  <Ionicons name="checkmark-circle-outline" size={18} color="#5ee0a0" />
+                  <ThemedText style={styles.successText}>
+                    {t("auth:resetPasswordSuccess", {
+                      defaultValue: "Password reset link sent. Check your email.",
+                    })}
+                  </ThemedText>
+                </View>
+              ) : null}
+
               <View style={styles.inputWrap}>
                 <Ionicons name="mail-outline" size={18} color={UI.muted} style={styles.inputIcon} />
 
@@ -213,6 +215,7 @@ export default function ForgotPasswordScreen() {
                   onChangeText={(value) => {
                     setEmail(value);
                     if (errorMessage) setErrorMessage("");
+                    if (resetLinkSent) setResetLinkSent(false);
                   }}
                   style={styles.input}
                   keyboardType="email-address"
@@ -406,6 +409,27 @@ const styles = StyleSheet.create({
   errorText: {
     flex: 1,
     color: "#ffb4b4",
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "800",
+    marginLeft: 8,
+  },
+
+  successBox: {
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(34, 197, 94, 0.36)",
+    backgroundColor: "rgba(34, 197, 94, 0.12)",
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+  },
+
+  successText: {
+    flex: 1,
+    color: "#9af2bf",
     fontSize: 12,
     lineHeight: 17,
     fontWeight: "800",

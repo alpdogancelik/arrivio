@@ -60,6 +60,18 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+function formatBlockUntil(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 function Field({
   label,
   value,
@@ -148,6 +160,11 @@ export default function ProfileScreen() {
   const roleKey = String((user as any)?.role ?? "carrier");
   const roleLabel = t(`common:roles.${roleKey}`, { defaultValue: roleKey });
   const carrierId = String((user as any)?.carrierId ?? (user as any)?.Carrier_ID ?? user?.id ?? "").trim();
+  const carrierStatus = String((user as any)?.carrierStatus ?? "").trim();
+  const isBlocked = carrierStatus.toLowerCase() === "blocked";
+  const blockReason = String((user as any)?.blockReason ?? "").trim();
+  const blockMessage = String((user as any)?.blockMessage ?? "").trim();
+  const blockUntil = formatBlockUntil((user as any)?.blockUntil);
   const availabilityLabel = form.available
     ? t("profile:available", { defaultValue: "Available" })
     : t("profile:unavailable", { defaultValue: "Unavailable" });
@@ -235,7 +252,7 @@ export default function ProfileScreen() {
             </View>
           </View>
 
-          {!editing ? (
+          {!editing && !isBlocked ? (
             <Pressable onPress={() => setEditing(true)} style={styles.editButton} hitSlop={10}>
               <ThemedText style={styles.editButtonText}>
                 {t("profile:edit", { defaultValue: "Edit" })}
@@ -243,6 +260,43 @@ export default function ProfileScreen() {
             </Pressable>
           ) : null}
         </ThemedView>
+
+        {isBlocked ? (
+          <ThemedView style={styles.blockCard}>
+            <View style={styles.blockHeader}>
+              <View style={styles.blockIcon}>
+                <ThemedText style={styles.blockIconText}>!</ThemedText>
+              </View>
+              <View style={styles.blockCopy}>
+                <ThemedText style={styles.blockTitle}>
+                  {t("profile:blockedTitle", { defaultValue: "Account blocked" })}
+                </ThemedText>
+                <ThemedText style={styles.blockBody}>
+                  {blockMessage ||
+                    t("profile:blockedBody", {
+                      defaultValue: "An admin has blocked this carrier account. Booking actions are disabled until unblock.",
+                    })}
+                </ThemedText>
+              </View>
+            </View>
+
+            <View style={styles.infoBlock}>
+              <InfoRow label={t("profile:blockStatus", { defaultValue: "Block status" })} value={carrierStatus} />
+              <InfoRow
+                label={t("profile:blockReason", { defaultValue: "Block reason" })}
+                value={blockReason || "-"}
+              />
+              <InfoRow
+                label={t("profile:blockUntil", { defaultValue: "Blocked until" })}
+                value={blockUntil || t("profile:blockUntilManual", { defaultValue: "Until admin unblocks" })}
+              />
+            </View>
+          </ThemedView>
+        ) : carrierStatus ? (
+          <ThemedView style={styles.unblockCard}>
+            <InfoRow label={t("profile:blockStatus", { defaultValue: "Block status" })} value={carrierStatus} />
+          </ThemedView>
+        ) : null}
 
         {editing ? (
           <View style={styles.editActions}>
@@ -376,7 +430,10 @@ export default function ProfileScreen() {
               <SettingRow
                 label={t("profile:availability", { defaultValue: "Availability" })}
                 value={form.available}
-                onValueChange={(value) => setForm((state) => ({ ...state, available: value }))}
+                onValueChange={(value) => {
+                  if (isBlocked) return;
+                  setForm((state) => ({ ...state, available: value }));
+                }}
               />
             </View>
           )}
@@ -569,6 +626,66 @@ const styles = StyleSheet.create({
     backgroundColor: UI.card,
     padding: 16,
     marginBottom: 12,
+  },
+
+  blockCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.35)",
+    backgroundColor: "rgba(239, 68, 68, 0.1)",
+    padding: 16,
+    marginBottom: 12,
+  },
+
+  unblockCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(34, 197, 94, 0.28)",
+    backgroundColor: "rgba(34, 197, 94, 0.1)",
+    padding: 16,
+    marginBottom: 12,
+  },
+
+  blockHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 12,
+  },
+
+  blockIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(239, 68, 68, 0.16)",
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.32)",
+    marginRight: 12,
+  },
+
+  blockIconText: {
+    color: UI.red,
+    fontSize: 18,
+    fontWeight: "900",
+  },
+
+  blockCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+
+  blockTitle: {
+    color: UI.text,
+    fontSize: 16,
+    fontWeight: "900",
+  },
+
+  blockBody: {
+    color: UI.muted,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 4,
   },
 
   sectionHeader: {

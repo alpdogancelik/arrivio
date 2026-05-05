@@ -916,6 +916,33 @@ const resolveBookingIds = (data: Record<string, any>) => ({
     ) ?? undefined,
 });
 
+const syncCancelledBookingState = async (bookingDocId: string, booking: Record<string, any>) => {
+  const updates = {
+    bookingStatus: 'Cancelled',
+    queueStatus: 'Cancelled',
+    UpdatedAt: FieldValue.serverTimestamp(),
+  };
+
+  await db.collection('Booking').doc(bookingDocId).set(updates, { merge: true });
+
+  const queueEntryId = toStringValue(booking.queueEntryId ?? booking.QueueEntry_ID ?? booking.QueueEntryId);
+  if (queueEntryId) {
+    await db
+      .collection('QueueEntry')
+      .doc(queueEntryId)
+      .set(
+        {
+          status: 'Cancelled',
+          queueStatus: 'Cancelled',
+          updatedAt: FieldValue.serverTimestamp(),
+          UpdatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      )
+      .catch((err) => logger.debug('QueueEntry cancel sync by id failed', err));
+  }
+};
+
 export const onBookingCompleted = onDocumentUpdated(
   { document: 'Booking/{bookingId}', region: 'europe-west3' },
   async (event) => {
@@ -925,9 +952,16 @@ export const onBookingCompleted = onDocumentUpdated(
 
     const beforeStatus = normalizeBookingStatus(before.Booking_Status ?? before.status);
     const afterStatus = normalizeBookingStatus(after.Booking_Status ?? after.status);
-    if (beforeStatus === afterStatus || afterStatus !== 'completed') return;
+    if (beforeStatus === afterStatus) return;
 
     const bookingId = String(event.params.bookingId);
+    if (afterStatus === 'cancelled') {
+      await syncCancelledBookingState(bookingId, after);
+      return;
+    }
+
+    if (afterStatus !== 'completed') return;
+
     const ids = resolveBookingIds(after);
     const stationId = ids.stationId ?? 'unknown';
     const carrierId = ids.carrierId ?? 'unknown';

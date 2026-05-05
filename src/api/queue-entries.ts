@@ -31,6 +31,9 @@ const normalizeQueueEntryStatus = (value: unknown) => {
     raw === 'inservice' ||
     raw === 'in_service' ||
     raw === 'in service' ||
+    raw === 'inprogress' ||
+    raw === 'in_progress' ||
+    raw === 'in progress' ||
     raw === 'started' ||
     raw === 'processing'
   ) {

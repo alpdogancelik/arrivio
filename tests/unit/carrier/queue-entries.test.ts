@@ -213,7 +213,7 @@ describe('carrier queue entries api', () => {
 
     seedQueueEntry('queue-servicing', {
       carrierId: 'carrier-1',
-      queueStatus: 'in_service',
+      queueStatus: 'InProgress',
     });
 
     seedQueueEntry('queue-completed', {

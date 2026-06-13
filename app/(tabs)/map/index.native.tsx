@@ -9,12 +9,12 @@ import { useTranslation } from 'react-i18next';
 
 import {
   buildDirectionsUrl,
-  FacilityPin,
   getFocusedRegion,
   STATUS_COLORS,
   useMapData,
   type Availability,
-} from './map-data';
+  type FacilityPin,
+} from '@/features/map/map-data';
 
 const COLORS = {
   bg: '#07080a',

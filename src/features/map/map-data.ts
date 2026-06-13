@@ -1,4 +1,4 @@
-// app/(tabs)/map/map-data.ts
+// Shared map data helpers for native and web map screens.
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { fetchBookings } from '@/api/bookings';

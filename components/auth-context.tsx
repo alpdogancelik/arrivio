@@ -38,7 +38,7 @@ type State = {
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-const WEB_HYDRATE_TIMEOUT_MS = 8000;
+const WEB_HYDRATE_TIMEOUT_MS = 5 * 60 * 1000;
 const NATIVE_HYDRATE_TIMEOUT_MS = 12000;
 
 const withTimeout = async <T,>(promise: Promise<T>, label: string, timeoutMs?: number): Promise<T> => {
@@ -100,13 +100,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setState((s) => ({ ...s, tokens: nextTokens }));
       return nextTokens;
     } catch (error) {
-      const err = mapApiError(error);
-      if (err.status === 401 || err.status === 403) {
-        await logout();
-      }
       return null;
     }
-  }, [logout]);
+  }, []);
 
   useEffect(() => {
     tokensRef.current = state.tokens;
@@ -138,11 +134,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setState({ user: profile, tokens: activeTokens, status: 'authenticated', error: undefined });
       } catch (error) {
         const err = mapApiError(error);
-        await logout(err.message);
+        setState((s) => ({
+          user: s.user,
+          tokens: activeTokens,
+          status: 'error',
+          error: err.message,
+        }));
       }
     } catch (error) {
       const err = mapApiError(error);
-      await logout(err.message);
+      setState((s) => ({
+        user: s.user,
+        tokens: s.tokens,
+        status: 'error',
+        error: err.message,
+      }));
     }
   }, [logout, refreshTokens]);
 

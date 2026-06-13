@@ -21,7 +21,7 @@ import {
   useMapData,
   type Availability,
   type FacilityPin,
-} from './map-data';
+} from '@/features/map/map-data';
 
 type WebStation = {
   id: string;

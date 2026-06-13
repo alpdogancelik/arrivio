@@ -579,7 +579,32 @@ const BlockedBookingCard = memo(function BlockedBookingCard(props: {
   );
 });
 
+function BookingBootShell() {
+  return (
+    <SafeAreaView style={styles.container}>
+      <Stack.Screen options={{ headerShown: false }} />
+      <View style={styles.bootShell}>
+        <ActivityIndicator color={COLORS.blue} />
+      </View>
+    </SafeAreaView>
+  );
+}
+
 export default function NewBookingScreen() {
+  const [isClientReady, setIsClientReady] = useState(false);
+
+  useEffect(() => {
+    setIsClientReady(true);
+  }, []);
+
+  if (!isClientReady) {
+    return <BookingBootShell />;
+  }
+
+  return <NewBookingContent />;
+}
+
+function NewBookingContent() {
   const router = useRouter();
   const qc = useQueryClient();
   const { t, i18n } = useTranslation(["booking", "common", "home"]);
@@ -1005,6 +1030,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.bg,
+  },
+  bootShell: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   header: {

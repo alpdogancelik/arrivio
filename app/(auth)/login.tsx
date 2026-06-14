@@ -119,7 +119,7 @@ export default function LoginScreen() {
         return;
       }
 
-      router.replace("/(tabs)/home");
+      router.replace("/home");
     } catch (error: any) {
       setErrorMessage(localizeAuthError(error, t));
     } finally {

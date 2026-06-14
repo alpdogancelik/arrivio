@@ -99,7 +99,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await saveTokens(nextTokens);
       setState((s) => ({ ...s, tokens: nextTokens }));
       return nextTokens;
-    } catch (error) {
+    } catch {
       return null;
     }
   }, []);

@@ -108,7 +108,7 @@ function AuthGate() {
   }
 
   if (status === 'authenticated' && inAuthFlow) {
-    return <Redirect href="/(tabs)/home" />;
+    return <Redirect href="/home" />;
   }
 
   if (status === 'unauthenticated' && !inAuthFlow) {

@@ -11,7 +11,7 @@ export default function ModalScreen() {
   return (
     <ThemedView style={styles.container}>
       <ThemedText type="title">{t('appName')}</ThemedText>
-      <Link href="/(tabs)/home" dismissTo style={styles.link}>
+      <Link href="/home" dismissTo style={styles.link}>
         <ThemedText type="link">{t('retry')}</ThemedText>
       </Link>
     </ThemedView>

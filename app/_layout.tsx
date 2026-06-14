@@ -112,7 +112,7 @@ function AuthGate() {
   }
 
   if (status === 'unauthenticated' && !inAuthFlow) {
-    return <Redirect href="/(auth)/login" />;
+    return <Redirect href="/login" />;
   }
 
   if (status === 'error') {

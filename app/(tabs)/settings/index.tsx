@@ -106,7 +106,7 @@ export default function SettingsScreen() {
 
     try {
       await logout();
-      router.replace("/(auth)/login");
+      router.replace("/login");
     } catch (e: any) {
       Alert.alert(
         t("common:signOutFailed", { defaultValue: "Sign out failed" }),

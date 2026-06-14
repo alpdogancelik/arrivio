@@ -354,7 +354,7 @@ export default function RegisterScreen() {
               </ThemedText>
 
               <Pressable
-                onPress={() => router.push("/(auth)/login")}
+                onPress={() => router.push("/login")}
                 style={({ pressed }) => [styles.signInButton, pressed && styles.pressed]}
                 accessibilityRole="button"
               >

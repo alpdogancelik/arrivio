@@ -1,7 +1,6 @@
 import { useAuth } from "@/components/auth-context";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
-import { appConfig } from "@/config";
 import { saveLanguage } from "@/storage/language-store";
 
 import { Ionicons } from "@expo/vector-icons";
@@ -93,8 +92,6 @@ export default function SettingsScreen() {
       }),
     [roleKey, t],
   );
-
-  const versionLabel = useMemo(() => `v${appConfig.version}`, []);
 
   const resolvedLanguage = (i18n.resolvedLanguage ?? i18n.language ?? "en").toLowerCase();
   const isTurkish = resolvedLanguage.startsWith("tr");
@@ -199,7 +196,6 @@ export default function SettingsScreen() {
 
           <View style={styles.infoBlock}>
             <InfoRow label={t("settings:role", { defaultValue: "Role" })} value={roleLabel} />
-            <InfoRow label={t("settings:version", { defaultValue: "Version" })} value={versionLabel} />
           </View>
         </ThemedView>
 

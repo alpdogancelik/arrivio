@@ -77,6 +77,20 @@ function normalizeText(value?: string | null, fallback = "—") {
   return clean.length > 0 ? clean : fallback;
 }
 
+function normalizeOptionalText(value?: string | null) {
+  if (typeof value !== "string") return null;
+
+  const clean = value.trim();
+  if (!clean) return null;
+
+  const lowered = clean.toLowerCase();
+  if (lowered === "unknown" || lowered === "undefined" || lowered === "null") {
+    return null;
+  }
+
+  return clean;
+}
+
 function formatArrival(value?: string) {
   if (!value) return "—";
 
@@ -113,8 +127,8 @@ function getActiveBooking(bookings: Booking[]) {
   );
 }
 
-function resolveQueueEstimate(booking: Booking | null, pendingText: string, livePendingText: string) {
-  if (!booking) return "—";
+function resolveQueueEstimate(booking: Booking | null) {
+  if (!booking) return null;
 
   const eta = (booking as any)?.etaMinutes;
 
@@ -122,11 +136,7 @@ function resolveQueueEstimate(booking: Booking | null, pendingText: string, live
     return `${Math.max(0, Math.round(eta))} min`;
   }
 
-  if ((booking as any)?.status === "pending") {
-    return pendingText;
-  }
-
-  return livePendingText;
+  return null;
 }
 
 function getStatusMeta(status: string | undefined, t: any) {
@@ -442,23 +452,17 @@ export default function HomeScreen() {
   const activeStation = active ? stationById.get((active as any).stationId) : undefined;
   const resolvedFacilityId = (active as any)?.facilityId ?? activeStation?.facilityId;
   const facilityName =
-    (active as any)?.facilityName ??
-    facilityById.get(resolvedFacilityId ?? "")?.name ??
-    t("home:facilityFallback", { defaultValue: "Facility" });
+    normalizeOptionalText((active as any)?.facilityName) ??
+    normalizeOptionalText(facilityById.get(resolvedFacilityId ?? "")?.name) ??
+    normalizeOptionalText(resolvedFacilityId);
 
   const stationName =
-    (active as any)?.stationName ??
-    activeStation?.name ??
-    ((active as any)?.stationId
-      ? normalizeText((active as any).stationId)
-      : t("home:notAssigned", { defaultValue: "Not assigned yet" }));
+    normalizeOptionalText((active as any)?.stationName) ??
+    normalizeOptionalText(activeStation?.name) ??
+    normalizeOptionalText((active as any)?.stationId);
 
   const arrivalTime = active ? formatArrival((active as any).arrivalTime) : "—";
-  const queueEstimate = resolveQueueEstimate(
-    active,
-    t("home:afterConfirmation", { defaultValue: "After gate confirmation" }),
-    t("home:liveUpdatePending", { defaultValue: "Live update pending" }),
-  );
+  const queueEstimate = resolveQueueEstimate(active);
 
   const statusMeta = getStatusMeta((active as any)?.status, t);
   const reference = active
@@ -501,30 +505,38 @@ export default function HomeScreen() {
 
   const detailItems: DetailItem[] = active
     ? [
-        {
-          id: "facility",
-          label: t("home:facility", { defaultValue: "Facility" }),
-          value: facilityName,
-        },
+        ...(facilityName
+          ? [
+              {
+                id: "facility",
+                label: t("home:facility", { defaultValue: "Facility" }),
+                value: facilityName,
+              },
+            ]
+          : []),
         {
           id: "arrival",
           label: t("home:estimatedArrival", { defaultValue: "Estimated arrival" }),
           value: arrivalTime,
         },
-        {
-          id: "station",
-          label: t("home:stationGate", { defaultValue: "Station / Gate" }),
-          value: stationName,
-          helper:
-            (active as any)?.stationId || activeStation
-              ? undefined
-              : t("home:waitingForGate", { defaultValue: "Waiting for gate confirmation" }),
-        },
-        {
-          id: "queue",
-          label: t("home:queueEstimate", { defaultValue: "Queue estimate" }),
-          value: queueEstimate,
-        },
+        ...(stationName
+          ? [
+              {
+                id: "station",
+                label: t("home:stationGate", { defaultValue: "Station / Gate" }),
+                value: stationName,
+              },
+            ]
+          : []),
+        ...(queueEstimate
+          ? [
+              {
+                id: "queue",
+                label: t("home:queueEstimate", { defaultValue: "Queue estimate" }),
+                value: queueEstimate,
+              },
+            ]
+          : []),
         {
           id: "status",
           label: t("home:currentStatus", { defaultValue: "Current status" }),
@@ -632,13 +644,6 @@ export default function HomeScreen() {
         </ThemedView>
 
         <View style={styles.footerContainer}>
-          <ThemedText style={styles.footer}>
-            {t("common:lastUpdated", {
-              time: t("common:mins", { count: 5, defaultValue: "5 min" }),
-              defaultValue: "Last updated: 5 min",
-            })}
-          </ThemedText>
-
           <ThemedText style={styles.footerSmall}>
             v{appConfig.version} · {t("common:appName", { defaultValue: "Arrivio" })}
           </ThemedText>

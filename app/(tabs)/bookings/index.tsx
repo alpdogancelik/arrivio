@@ -259,8 +259,6 @@ const BookingCard = memo(function BookingCard(props: {
     stationFallback: string;
     facilityFallback: string;
     bookingLabel: string;
-    etaUnknown: string;
-    etaUnit: string;
     notScheduled: string;
     locale?: string;
   };
@@ -270,10 +268,6 @@ const BookingCard = memo(function BookingCard(props: {
   const stationName = normalizeText(booking.stationName ?? booking.stationId, labels.stationFallback);
   const facilityName = normalizeText(booking.facilityName ?? booking.facilityId, labels.facilityFallback);
   const bookingRef = `#${formatBookingId(booking.id)}`;
-  const eta =
-    typeof booking.etaMinutes === "number" && Number.isFinite(booking.etaMinutes)
-      ? `${booking.etaMinutes} ${labels.etaUnit}`
-      : labels.etaUnknown;
 
   return (
     <Pressable
@@ -307,13 +301,6 @@ const BookingCard = memo(function BookingCard(props: {
             <Ionicons name="calendar-outline" size={15} color={COLORS.muted} />
             <Text style={[styles.metaText, muted ? styles.textMuted : null]} numberOfLines={1}>
               {formatWhen(booking.arrivalTime, labels.locale, labels.notScheduled)}
-            </Text>
-          </View>
-
-          <View style={styles.metaItem}>
-            <Ionicons name="time-outline" size={15} color={COLORS.muted} />
-            <Text style={[styles.metaText, muted ? styles.textMuted : null]} numberOfLines={1}>
-              {eta}
             </Text>
           </View>
         </View>
@@ -488,8 +475,6 @@ export default function BookingsIndexScreen() {
     stationFallback: t("booking:stationFallback", { defaultValue: "Station pending" }),
     facilityFallback: t("booking:facilityFallback", { defaultValue: "Facility details pending" }),
     bookingLabel: t("booking:booking", { defaultValue: "Booking" }),
-    etaUnknown: t("booking:etaUnknown", { defaultValue: "ETA not available" }),
-    etaUnit: t("booking:etaUnit", { defaultValue: "min" }),
     notScheduled: t("booking:notScheduled", { defaultValue: "Not scheduled" }),
     locale,
   };

@@ -101,6 +101,20 @@ const normalizeText = (value: unknown, fallback: string) => {
   return trimmed;
 };
 
+const normalizeOptionalText = (value: unknown) => {
+  if (typeof value !== "string") return null;
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const lowered = trimmed.toLowerCase();
+  if (lowered === "unknown" || lowered === "undefined" || lowered === "null") {
+    return null;
+  }
+
+  return trimmed;
+};
+
 const formatWhen = (iso: string | undefined, locale: string | undefined, fallback: string) => {
   if (!iso) return fallback;
 
@@ -170,7 +184,7 @@ const StatusPill = memo(function StatusPill(props: { label: string; toneName: St
 
 const SummaryCard = memo(function SummaryCard(props: {
   station: string;
-  facility: string;
+  facility?: string | null;
   arrival: string;
   bookingId: string;
   status: string;
@@ -193,9 +207,11 @@ const SummaryCard = memo(function SummaryCard(props: {
           <Text style={styles.summaryStation} numberOfLines={2}>
             {station}
           </Text>
-          <Text style={styles.summaryFacility} numberOfLines={1}>
-            {facility}
-          </Text>
+          {facility ? (
+            <Text style={styles.summaryFacility} numberOfLines={1}>
+              {facility}
+            </Text>
+          ) : null}
         </View>
 
         <StatusPill label={status} toneName={statusTone} />
@@ -241,25 +257,6 @@ const DetailListCard = memo(function DetailListCard(props: {
 
             {index < rows.length - 1 ? <View style={styles.divider} /> : null}
           </React.Fragment>
-        ))}
-      </View>
-    </View>
-  );
-});
-
-const TimelineCard = memo(function TimelineCard(props: { title: string; steps: string[] }) {
-  const { title, steps } = props;
-
-  return (
-    <View style={styles.card}>
-      <Text style={styles.cardTitle}>{title}</Text>
-
-      <View style={styles.timelineList}>
-        {steps.map((step, index) => (
-          <View key={`${step}-${index}`} style={styles.timelineRow}>
-            <View style={styles.timelineDot} />
-            <Text style={styles.timelineText}>{step}</Text>
-          </View>
         ))}
       </View>
     </View>
@@ -565,20 +562,10 @@ export default function BookingDetailScreen() {
     t("booking:stationPending", { defaultValue: "Station pending" }),
   );
 
-  const facilityLabel = normalizeText(
-    booking.facilityName ?? booking.facilityId,
-    t("booking:facilityPending", { defaultValue: "Awaiting facility details" }),
-  );
+  const facilityLabel = normalizeOptionalText(booking.facilityName ?? booking.facilityId);
 
   const arrivalLabel = formatWhen(booking.arrivalTime, locale, notScheduledLabel);
   const slotLabel = formatSlot(booking.slot ?? undefined);
-  const etaLabel =
-    typeof booking.etaMinutes === "number"
-      ? t("booking:etaValue", {
-        count: booking.etaMinutes,
-        defaultValue: `${booking.etaMinutes} min`,
-      })
-      : t("booking:etaUnknown", { defaultValue: "Not available yet" });
 
   const recommendedStationId = String(
     booking.recommendedStationId ?? recoData?.suggestedStationId ?? "",
@@ -612,40 +599,42 @@ export default function BookingDetailScreen() {
         })
         : t("booking:noQueueEntry", { defaultValue: "No queue entry found for this booking." }),
     },
-    {
-      id: "recommendation",
-      label: t("booking:recommendation", { defaultValue: "Recommendation" }),
-      value: recommendedStationId
-        ? t("booking:recommendedStation", {
-          station: recommendedStationId,
-          defaultValue: `Recommended: ${recommendedStationId}`,
-        })
-        : t("booking:noRecommendation", { defaultValue: "Not available yet" }),
-      helper:
-        typeof booking.recommendedWaitMin === "number"
-          ? t("booking:estWait", {
-            count: booking.recommendedWaitMin,
-            defaultValue: `Est. wait: ${booking.recommendedWaitMin} min`,
-          })
-          : undefined,
-    },
-    {
-      id: "issues",
-      label: t("issue:recentIssues", { defaultValue: "Issues" }),
-      value: issues.length
-        ? t("issue:issueCount", {
-          count: issues.length,
-          defaultValue: `${issues.length} issue${issues.length > 1 ? "s" : ""}`,
-        })
-        : t("issue:noIssues", { defaultValue: "No issues yet" }),
-      helper: issues.length
-        ? `${t(`issue:${String(issues[0]?.category ?? "other")}`, {
-          defaultValue: String(issues[0]?.category ?? t("issue:title", { defaultValue: "Issue" })),
-        })} - ${t(`issue:status.${String(issues[0]?.status ?? "open").toLowerCase()}`, {
-          defaultValue: t("issue:status.open", { defaultValue: "Open" }),
-        })}`
-        : undefined,
-    },
+    ...(recommendedStationId
+      ? [
+        {
+          id: "recommendation",
+          label: t("booking:recommendation", { defaultValue: "Recommendation" }),
+          value: t("booking:recommendedStation", {
+            station: recommendedStationId,
+            defaultValue: `Recommended: ${recommendedStationId}`,
+          }),
+          helper:
+            typeof booking.recommendedWaitMin === "number"
+              ? t("booking:estWait", {
+                count: booking.recommendedWaitMin,
+                defaultValue: `Est. wait: ${booking.recommendedWaitMin} min`,
+              })
+              : undefined,
+        },
+      ]
+      : []),
+    ...(issues.length
+      ? [
+        {
+          id: "issues",
+          label: t("issue:recentIssues", { defaultValue: "Issues" }),
+          value: t("issue:issueCount", {
+            count: issues.length,
+            defaultValue: `${issues.length} issue${issues.length > 1 ? "s" : ""}`,
+          }),
+          helper: `${t(`issue:${String(issues[0]?.category ?? "other")}`, {
+            defaultValue: String(issues[0]?.category ?? t("issue:title", { defaultValue: "Issue" })),
+          })} - ${t(`issue:status.${String(issues[0]?.status ?? "open").toLowerCase()}`, {
+            defaultValue: t("issue:status.open", { defaultValue: "Open" }),
+          })}`,
+        },
+      ]
+      : []),
   ];
 
   const detailRows: DetailRowItem[] = [
@@ -655,20 +644,19 @@ export default function BookingDetailScreen() {
       value: arrivalLabel,
     },
     {
-      id: "eta",
-      label: t("booking:estimatedArrival", { defaultValue: "Estimated arrival" }),
-      value: etaLabel,
-    },
-    {
       id: "slot",
       label: t("booking:slot", { defaultValue: "Slot" }),
       value: slotLabel ?? t("booking:slotPending", { defaultValue: "No slot label" }),
     },
-    {
-      id: "facility",
-      label: t("booking:facility", { defaultValue: "Facility" }),
-      value: facilityLabel,
-    },
+    ...(facilityLabel
+      ? [
+        {
+          id: "facility",
+          label: t("booking:facility", { defaultValue: "Facility" }),
+          value: facilityLabel,
+        },
+      ]
+      : []),
     {
       id: "station",
       label: t("booking:station", { defaultValue: "Station" }),
@@ -710,24 +698,9 @@ export default function BookingDetailScreen() {
         <DetailListCard
           title={t("booking:liveStatus", { defaultValue: "Live status" })}
           caption={t("booking:liveStatusCaption", {
-            defaultValue: "Queue, recommendation, and issue state for this booking.",
+            defaultValue: "Queue state for this booking.",
           })}
           rows={liveRows}
-        />
-
-        <TimelineCard
-          title={t("booking:arrivalTimeline", { defaultValue: "Arrival timeline" })}
-          steps={[
-            t("booking:timelineStep1", {
-              defaultValue: "Gate entry opens 20 minutes before your slot.",
-            }),
-            t("booking:timelineStep2", {
-              defaultValue: "Present documents at the checkpoint.",
-            }),
-            t("booking:timelineStep3", {
-              defaultValue: "Proceed to dock after queue clearance.",
-            }),
-          ]}
         />
 
         <ActionsCard
@@ -950,31 +923,6 @@ const styles = StyleSheet.create({
   divider: {
     height: 1,
     backgroundColor: COLORS.lineSoft,
-  },
-
-  timelineList: {
-    marginTop: 12,
-  },
-  timelineRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    marginTop: 9,
-  },
-  timelineDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 999,
-    backgroundColor: COLORS.blue,
-    marginTop: 6,
-    marginRight: 10,
-  },
-  timelineText: {
-    flex: 1,
-    minWidth: 0,
-    color: COLORS.textSoft,
-    fontSize: 13,
-    lineHeight: 19,
-    fontWeight: "500",
   },
 
   actionStack: {

@@ -130,12 +130,6 @@ const formatBlockUntil = (value?: string | null, locale?: string) => {
   });
 };
 
-// Rho is shown to carriers as a readable station load percentage.
-const formatLoadPercent = (rho: number) => {
-  if (!Number.isFinite(rho)) return 0;
-  return Math.max(0, Math.round(rho * 100));
-};
-
 type StationOption = {
   id: string;
   name: string;
@@ -182,7 +176,6 @@ type RecommendationProps = {
   stationsLabel: string;
   stationsCaption: string;
   waitUnknownText: string;
-  loadLabel: string;
   exactEstimateLabel: string;
   formatWaitText: (waitMin: number | null) => string;
   formatWaitShortText: (waitMin: number | null) => string;
@@ -376,7 +369,6 @@ const RecommendationSection = memo(function RecommendationSection(props: Recomme
     stationsLabel,
     stationsCaption,
     waitUnknownText,
-    loadLabel,
     exactEstimateLabel,
     formatWaitText,
     formatWaitShortText,
@@ -417,7 +409,7 @@ const RecommendationSection = memo(function RecommendationSection(props: Recomme
     <>
       <View style={styles.bestCard}>
         <View style={styles.bestIcon}>
-          <Ionicons name="sparkles" size={20} color={COLORS.blue} />
+          <Ionicons name="business-outline" size={20} color={COLORS.blue} />
         </View>
 
         <View style={styles.bestCopy}>
@@ -468,8 +460,8 @@ const RecommendationSection = memo(function RecommendationSection(props: Recomme
 
                   <Text style={styles.stationMeta} numberOfLines={2}>
                     {typeof station.waitMin === "number"
-                      ? `${formatWaitShortText(station.waitMin)} • ${formatLoadPercent(station.rho)}% ${loadLabel}`
-                      : `${waitUnknownText} • ${formatLoadPercent(station.rho)}% ${loadLabel}`}
+                      ? formatWaitShortText(station.waitMin)
+                      : waitUnknownText}
                   </Text>
 
                   {typeof station.waitMin === "number" && station.waitMin > 0 && station.waitMin < 1 ? (
@@ -998,7 +990,6 @@ function NewBookingContent() {
               defaultValue: "You can keep the recommendation or choose another station.",
             })}
             waitUnknownText={t("booking:waitUnknown", { defaultValue: "No wait time" })}
-            loadLabel={t("booking:load", { defaultValue: "load" })}
             exactEstimateLabel={t("booking:exactEstimate", { defaultValue: "Exact estimate: {{count}} min" })}
             formatWaitText={formatWaitText}
             formatWaitShortText={formatWaitShortText}

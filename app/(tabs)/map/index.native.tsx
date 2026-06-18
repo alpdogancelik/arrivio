@@ -1,15 +1,23 @@
 // app/(tabs)/map/index.native.tsx
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter, type Href } from 'expo-router';
-import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
+import React, { memo, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Linking,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { WebView } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 
+import { appConfig } from '@/config';
 import {
-  buildDirectionsUrl,
-  getFocusedRegion,
   STATUS_COLORS,
   useMapData,
   type Availability,
@@ -32,15 +40,11 @@ const COLORS = {
 
 const BOOKING_ROUTE = '/(tabs)/bookings/new' as const;
 
-const darkMapStyle = [
-  { elementType: 'geometry', stylers: [{ color: '#0b0b0b' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#a3a3a3' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#0b0b0b' }] },
-  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#131313' }] },
-  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#1f1f1f' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0a1620' }] },
-];
+const GOOGLE_STATIONS = [
+  { id: 'station-1', name: 'Station 1', shortName: 'Station1', query: '62X8+Q5C Kalkanli' },
+  { id: 'station-2', name: 'Station 2', shortName: 'Station2', query: '62X6+6XH Kalkanli' },
+  { id: 'station-3', name: 'Station 3', shortName: 'Station3', query: '7226+MC2 Kalkanli' },
+] as const;
 
 const availabilityFallbackLabel: Record<Availability, string> = {
   open: 'Open',
@@ -48,20 +52,92 @@ const availabilityFallbackLabel: Record<Availability, string> = {
   closed: 'Closed',
 };
 
-function openDirections(pin: FacilityPin) {
-  Linking.openURL(buildDirectionsUrl(pin)).catch(() => undefined);
+function stationQueryForPin(pin?: FacilityPin | null) {
+  if (!pin) return GOOGLE_STATIONS[2].query;
+
+  const normalizedShortName = pin.shortName?.toLowerCase();
+  const normalizedName = pin.name?.replace(/\s+/g, '').toLowerCase();
+  const matched =
+    GOOGLE_STATIONS.find((station) => station.shortName.toLowerCase() === normalizedShortName) ??
+    GOOGLE_STATIONS.find((station) => station.name.replace(/\s+/g, '').toLowerCase() === normalizedName);
+
+  return matched?.query ?? GOOGLE_STATIONS[2].query;
 }
 
-const HeaderOverlay = memo(function HeaderOverlay(props: {
+function toDirectionsUrl(selected?: FacilityPin | null) {
+  const origin = GOOGLE_STATIONS[0].query;
+  const destination = stationQueryForPin(selected);
+  const waypoints = GOOGLE_STATIONS.filter((pin) => pin.query !== origin && pin.query !== destination)
+    .map((pin) => pin.query)
+    .join('|');
+
+  return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(
+    destination,
+  )}${waypoints ? `&waypoints=${encodeURIComponent(waypoints)}` : ''}&travelmode=driving`;
+}
+
+function toStableEmbedUrl() {
+  const origin = GOOGLE_STATIONS[0].query;
+  const destination = GOOGLE_STATIONS[2].query;
+  const waypoints = GOOGLE_STATIONS[1].query;
+
+  if (appConfig.mapsApiKey) {
+    return `https://www.google.com/maps/embed/v1/directions?key=${encodeURIComponent(
+      appConfig.mapsApiKey,
+    )}&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&waypoints=${encodeURIComponent(
+      waypoints,
+    )}&mode=driving`;
+  }
+
+  return `https://maps.google.com/maps?f=d&saddr=${encodeURIComponent(origin)}&daddr=${encodeURIComponent(
+    destination,
+  )}+to:${encodeURIComponent(waypoints)}&output=embed`;
+}
+
+function toMapHtml() {
+  const src = toStableEmbedUrl().replace(/&/g, '&amp;');
+
+  return `<!doctype html>
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+    <style>
+      html, body, iframe {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        background: #0b0f16;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <iframe
+      title="facility-map"
+      src="${src}"
+      loading="lazy"
+      referrerpolicy="no-referrer-when-downgrade"
+      allowfullscreen>
+    </iframe>
+  </body>
+</html>`;
+}
+
+function openDirections(pin?: FacilityPin | null) {
+  if (!pin) return;
+  Linking.openURL(toDirectionsUrl(pin)).catch(() => undefined);
+}
+
+const HeaderCard = memo(function HeaderCard(props: {
   title: string;
   subtitle: string;
   updatedLabel: string;
   loading: boolean;
   syncingLabel: string;
   liveLabel: string;
-  resetLabel: string;
   refreshLabel: string;
-  onReset: () => void;
   onRefresh: () => void;
 }) {
   const {
@@ -71,9 +147,7 @@ const HeaderOverlay = memo(function HeaderOverlay(props: {
     loading,
     syncingLabel,
     liveLabel,
-    resetLabel,
     refreshLabel,
-    onReset,
     onRefresh,
   } = props;
 
@@ -93,31 +167,20 @@ const HeaderOverlay = memo(function HeaderOverlay(props: {
         </View>
       </View>
 
-      <Text style={styles.updatedText}>{updatedLabel}</Text>
-
-      <View style={styles.headerActions}>
-        <Pressable
-          onPress={onReset}
-          accessibilityRole="button"
-          accessibilityLabel={resetLabel}
-          style={({ pressed }) => [styles.headerAction, pressed ? styles.pressed : null]}
-        >
-          <Ionicons name="locate-outline" size={17} color={COLORS.blueText} />
-          <Text style={styles.headerActionText}>{resetLabel}</Text>
-        </Pressable>
-
+      <View style={styles.headerBottom}>
+        <Text style={styles.updatedText}>{updatedLabel}</Text>
         <Pressable
           onPress={onRefresh}
           accessibilityRole="button"
           accessibilityLabel={refreshLabel}
-          style={({ pressed }) => [styles.headerAction, pressed ? styles.pressed : null]}
+          style={({ pressed }) => [styles.refreshButton, pressed ? styles.pressed : null]}
         >
           {loading ? (
             <ActivityIndicator color={COLORS.blueText} />
           ) : (
-            <Ionicons name="refresh" size={17} color={COLORS.blueText} />
+            <Ionicons name="refresh" size={16} color={COLORS.blueText} />
           )}
-          <Text style={styles.headerActionText}>{refreshLabel}</Text>
+          <Text style={styles.refreshText}>{refreshLabel}</Text>
         </Pressable>
       </View>
     </View>
@@ -145,52 +208,45 @@ const StatusStrip = memo(function StatusStrip(props: {
   );
 });
 
-const MapMarker = memo(function MapMarker(props: {
-  pin: FacilityPin;
-  selected: boolean;
-  onPress: () => void;
+const MapCard = memo(function MapCard(props: {
+  title: string;
+  loadingLabel: string;
+  errorLabel: string;
 }) {
-  const { pin, selected, onPress } = props;
-  const color = STATUS_COLORS[pin.availability];
+  const { title, loadingLabel, errorLabel } = props;
 
   return (
-    <Marker
-      coordinate={{ latitude: pin.latitude, longitude: pin.longitude }}
-      onPress={onPress}
-      tracksViewChanges={false}
-      accessibilityLabel={`Station pin: ${pin.shortName}`}
-    >
-      <View style={styles.markerWrap}>
-        <View style={[styles.markerLabel, selected ? styles.markerLabelSelected : null]}>
-          <Text style={styles.markerLabelText} numberOfLines={1}>
-            {pin.shortName}
-          </Text>
-        </View>
-
-        <View style={styles.markerPin}>
-          <View
-            style={[
-              styles.markerRing,
-              { borderColor: `${color}${selected ? 'dd' : '66'}` },
-              selected ? styles.markerRingSelected : null,
-            ]}
-          />
-          <View
-            style={[
-              styles.markerDot,
-              { backgroundColor: color },
-              selected ? styles.markerDotSelected : null,
-            ]}
-          />
-        </View>
-      </View>
-    </Marker>
+    <View style={styles.mapCard}>
+      <WebView
+        source={{ html: toMapHtml(), baseUrl: 'https://maps.google.com' }}
+        style={styles.webMap}
+        originWhitelist={['https://*']}
+        javaScriptEnabled
+        domStorageEnabled
+        startInLoadingState
+        mixedContentMode="always"
+        nestedScrollEnabled
+        allowsInlineMediaPlayback
+        accessibilityLabel={title}
+        renderLoading={() => (
+          <View style={styles.mapState}>
+            <ActivityIndicator color={COLORS.blue} />
+            <Text style={styles.mapStateText}>{loadingLabel}</Text>
+          </View>
+        )}
+        renderError={() => (
+          <View style={styles.mapState}>
+            <Ionicons name="warning-outline" size={20} color={COLORS.blueText} />
+            <Text style={styles.mapStateText}>{errorLabel}</Text>
+          </View>
+        )}
+      />
+    </View>
   );
 });
 
-const BottomSheet = memo(function BottomSheet(props: {
+const SelectedStationCard = memo(function SelectedStationCard(props: {
   selected: FacilityPin;
-  pins: FacilityPin[];
   statusLabel: string;
   queueLabel: string;
   etaLabel: string;
@@ -200,11 +256,9 @@ const BottomSheet = memo(function BottomSheet(props: {
   directionsLabel: string;
   onBook: () => void;
   onDirections: () => void;
-  onSelectPin: (pin: FacilityPin) => void;
 }) {
   const {
     selected,
-    pins,
     statusLabel,
     queueLabel,
     etaLabel,
@@ -214,21 +268,18 @@ const BottomSheet = memo(function BottomSheet(props: {
     directionsLabel,
     onBook,
     onDirections,
-    onSelectPin,
   } = props;
 
   const statusColor = STATUS_COLORS[selected.availability];
 
   return (
-    <View style={styles.sheet}>
-      <View style={styles.sheetHandle} />
-
-      <View style={styles.sheetHeader}>
-        <View style={styles.sheetTitleWrap}>
-          <Text style={styles.sheetTitle} numberOfLines={1}>
+    <View style={styles.card}>
+      <View style={styles.stationHeader}>
+        <View style={styles.stationCopy}>
+          <Text style={styles.cardTitle} numberOfLines={1}>
             {selected.name}
           </Text>
-          <Text style={styles.sheetSub} numberOfLines={1}>
+          <Text style={styles.cardCaption} numberOfLines={1}>
             {selected.facilityName ?? selected.source}
           </Text>
         </View>
@@ -274,29 +325,56 @@ const BottomSheet = memo(function BottomSheet(props: {
         </Pressable>
       </View>
 
-      <View style={styles.pinList}>
-        {pins.map((pin) => {
-          const active = pin.id === selected.id;
+    </View>
+  );
+});
+
+const StationList = memo(function StationList(props: {
+  pins: FacilityPin[];
+  selectedId?: string;
+  title: string;
+  getMetaLabel: (pin: FacilityPin) => string;
+  onSelectPin: (pin: FacilityPin) => void;
+}) {
+  const { pins, selectedId, title, getMetaLabel, onSelectPin } = props;
+
+  return (
+    <View style={styles.card}>
+      <Text style={styles.cardTitle}>{title}</Text>
+
+      <View style={styles.stationList}>
+        {pins.map((pin, index) => {
+          const active = pin.id === selectedId;
           const color = STATUS_COLORS[pin.availability];
 
           return (
-            <Pressable
-              key={pin.id}
-              onPress={() => onSelectPin(pin)}
-              accessibilityRole="button"
-              accessibilityLabel={pin.shortName}
-              style={({ pressed }) => [
-                styles.pinChip,
-                active ? styles.pinChipActive : null,
-                { borderColor: active ? `${color}66` : COLORS.line },
-                pressed ? styles.pressed : null,
-              ]}
-            >
-              <View style={[styles.pinChipDot, { backgroundColor: color }]} />
-              <Text style={styles.pinChipText} numberOfLines={1}>
-                {pin.shortName}
-              </Text>
-            </Pressable>
+            <React.Fragment key={pin.id}>
+              <Pressable
+                onPress={() => onSelectPin(pin)}
+                accessibilityRole="button"
+                accessibilityLabel={pin.name}
+                style={({ pressed }) => [
+                  styles.stationRow,
+                  active ? styles.stationRowActive : null,
+                  pressed ? styles.pressed : null,
+                ]}
+              >
+                <View style={[styles.stationDot, { backgroundColor: color }]} />
+
+                <View style={styles.stationRowCopy}>
+                  <Text style={styles.stationName} numberOfLines={1}>
+                    {pin.name}
+                  </Text>
+                  <Text style={styles.stationMeta} numberOfLines={1}>
+                    {getMetaLabel(pin)}
+                  </Text>
+                </View>
+
+                <Ionicons name="chevron-forward" size={18} color={COLORS.muted} />
+              </Pressable>
+
+              {index < pins.length - 1 ? <View style={styles.divider} /> : null}
+            </React.Fragment>
           );
         })}
       </View>
@@ -308,13 +386,12 @@ export default function MapScreen() {
   const { t } = useTranslation(['map', 'common']);
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const mapRef = useRef<MapView | null>(null);
 
-  const { pins, counts, initialRegion, isLoading, isRefetching, refetchAll } = useMapData();
+  const { pins, counts, isLoading, isRefetching, refetchAll } = useMapData();
 
   const [selectedId, setSelectedId] = useState<string | undefined>(pins[0]?.id);
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (!pins.length) return;
 
     if (!selectedId || !pins.some((pin) => pin.id === selectedId)) {
@@ -348,16 +425,11 @@ export default function MapScreen() {
     });
   }, [selected?.lastUpdatedMinAgo, t]);
 
-  const focusPin = useCallback((pin: FacilityPin) => {
+  const focusPin = (pin: FacilityPin) => {
     setSelectedId(pin.id);
-    mapRef.current?.animateToRegion(getFocusedRegion(pin), 320);
-  }, []);
+  };
 
-  const resetMap = useCallback(() => {
-    mapRef.current?.animateToRegion(initialRegion, 360);
-  }, [initialRegion]);
-
-  const handleBook = useCallback(() => {
+  const handleBook = () => {
     if (!selected) return;
 
     router.push({
@@ -367,85 +439,72 @@ export default function MapScreen() {
         stationId: selected.stationId ?? selected.id,
       },
     } as Href);
-  }, [router, selected]);
-
-  const handleDirections = useCallback(() => {
-    if (!selected) return;
-    openDirections(selected);
-  }, [selected]);
+  };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      <MapView
-        ref={(ref) => {
-          mapRef.current = ref;
-        }}
-        style={StyleSheet.absoluteFill}
-        initialRegion={initialRegion}
-        customMapStyle={darkMapStyle as any}
-        showsUserLocation
-        showsCompass
-        rotateEnabled={false}
-        mapPadding={{
-          top: insets.top + 166,
-          right: 16,
-          bottom: insets.bottom + 294,
-          left: 16,
-        }}
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingTop: Math.max(insets.top, 14) }]}
+        showsVerticalScrollIndicator={false}
       >
-        {pins.map((pin) => (
-          <MapMarker
-            key={pin.id}
-            pin={pin}
-            selected={pin.id === selected?.id}
-            onPress={() => focusPin(pin)}
-          />
-        ))}
-      </MapView>
-
-      <View style={[styles.topOverlay, { paddingTop: insets.top + 10 }]} pointerEvents="box-none">
-        <HeaderOverlay
+        <HeaderCard
           title={t('map:title', { defaultValue: 'Facility map' })}
           subtitle={t('map:subtitle', {
-            defaultValue: 'Tap a station to see queue length, ETA, and actions.',
+            defaultValue: 'Use the map for route preview. Select a station below to view queue and actions.',
           })}
           updatedLabel={lastUpdatedLabel}
           loading={isLoading || isRefetching}
           syncingLabel={t('map:syncing', { defaultValue: 'Syncing' })}
           liveLabel={t('map:live', { defaultValue: 'Live' })}
-          resetLabel={t('map:reset', { defaultValue: 'Reset' })}
           refreshLabel={t('map:refresh', { defaultValue: 'Refresh' })}
-          onReset={resetMap}
           onRefresh={refetchAll}
         />
 
         <StatusStrip counts={counts} labels={statusLabels} />
-      </View>
 
-      {selected ? (
-        <View style={[styles.bottomWrap, { paddingBottom: Math.max(insets.bottom, 10) + 74 }]}>
-          <BottomSheet
+        <MapCard
+          title={t('map:title', { defaultValue: 'Facility map' })}
+          loadingLabel={t('map:loadingMap', { defaultValue: 'Loading map' })}
+          errorLabel={t('map:mapUnavailable', { defaultValue: 'Map unavailable' })}
+        />
+
+        {selected ? (
+          <SelectedStationCard
             selected={selected}
-            pins={pins}
             statusLabel={statusLabels[selected.availability]}
             queueLabel={t('common:queueLength', { defaultValue: 'Queue length' })}
-            etaLabel={t('common:eta', { defaultValue: 'ETA' })}
+            etaLabel={t('common:eta', { defaultValue: 'Estimated time of arrival' })}
             trucksLabel={t('map:trucks', {
               count: selected.queueLength,
               defaultValue: `${selected.queueLength} trucks`,
             })}
             estimatePromptLabel={t('map:selectSlotForEstimate', { defaultValue: 'Select slot for estimate' })}
-            bookLabel={t('map:bookSlot', { defaultValue: 'Book slot' })}
+            bookLabel={t('map:bookSlot', { defaultValue: 'Book a slot' })}
             directionsLabel={t('map:directions', { defaultValue: 'Directions' })}
             onBook={handleBook}
-            onDirections={handleDirections}
-            onSelectPin={focusPin}
+            onDirections={() => openDirections(selected)}
           />
-        </View>
-      ) : null}
-    </View>
+        ) : null}
+
+        <StationList
+          pins={pins}
+          selectedId={selected?.id}
+          title={t('map:stations', { defaultValue: 'Stations' })}
+          getMetaLabel={(pin) =>
+            t('map:stationMeta', {
+              count: pin.queueLength,
+              eta: t('map:selectSlotForEstimate', { defaultValue: 'Select slot for estimate' }),
+              defaultValue: `${pin.queueLength} trucks - ${
+                t('map:selectSlotForEstimate', { defaultValue: 'Select slot for estimate' })
+              }`,
+            })
+          }
+          onSelectPin={focusPin}
+        />
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -453,6 +512,14 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.bg,
+  },
+  content: {
+    width: '100%',
+    maxWidth: 520,
+    alignSelf: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 156,
   },
   pressed: {
     opacity: 0.92,
@@ -530,13 +597,38 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     fontWeight: '700',
   },
-  updatedText: {
+  headerBottom: {
     position: 'relative',
     zIndex: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  updatedText: {
+    flex: 1,
+    minWidth: 0,
     color: COLORS.muted,
     fontSize: 12,
     lineHeight: 17,
-    marginTop: 8,
+    paddingRight: 10,
+  },
+  refreshButton: {
+    minHeight: 36,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+    backgroundColor: COLORS.cardRaised,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  refreshText: {
+    color: COLORS.blueText,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+    marginLeft: 6,
   },
   headerActions: {
     position: 'relative',
@@ -570,6 +662,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginHorizontal: -4,
     marginTop: 10,
+    marginBottom: 12,
   },
   statusChip: {
     flex: 1,
@@ -604,6 +697,32 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: '700',
     marginLeft: 6,
+  },
+  mapCard: {
+    height: 280,
+    overflow: 'hidden',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+    backgroundColor: COLORS.card,
+    marginBottom: 14,
+  },
+  webMap: {
+    flex: 1,
+    backgroundColor: COLORS.card,
+  },
+  mapState: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.card,
+  },
+  mapStateText: {
+    color: COLORS.textSoft,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
+    marginTop: 8,
   },
 
   markerWrap: {
@@ -658,6 +777,37 @@ const styles = StyleSheet.create({
   markerDotSelected: {
     width: 12,
     height: 12,
+  },
+
+  card: {
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+    backgroundColor: COLORS.card,
+    padding: 16,
+    marginBottom: 14,
+  },
+  cardTitle: {
+    color: COLORS.text,
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '700',
+  },
+  cardCaption: {
+    color: COLORS.textSoft,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 4,
+  },
+  stationHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 13,
+  },
+  stationCopy: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 12,
   },
 
   bottomWrap: {
@@ -789,6 +939,52 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 18,
     fontWeight: '700',
+  },
+
+  stationList: {
+    overflow: 'hidden',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.lineSoft,
+    backgroundColor: '#070b1288',
+    marginTop: 13,
+  },
+  stationRow: {
+    minHeight: 62,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  stationRowActive: {
+    backgroundColor: '#071326',
+  },
+  stationDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 999,
+    marginRight: 12,
+  },
+  stationRowCopy: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 10,
+  },
+  stationName: {
+    color: COLORS.text,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '700',
+  },
+  stationMeta: {
+    color: COLORS.textSoft,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 3,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: COLORS.lineSoft,
   },
 
   pinList: {
